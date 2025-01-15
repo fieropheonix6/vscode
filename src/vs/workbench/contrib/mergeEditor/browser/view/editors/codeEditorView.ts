@@ -3,29 +3,32 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { h } from 'vs/base/browser/dom';
-import { IView, IViewSize } from 'vs/base/browser/ui/grid/grid';
-import { Emitter, Event } from 'vs/base/common/event';
-import { Disposable, IDisposable } from 'vs/base/common/lifecycle';
-import { autorun, derived, IObservable, observableFromEvent } from 'vs/base/common/observable';
-import { IEditorContributionDescription } from 'vs/editor/browser/editorExtensions';
-import { CodeEditorWidget } from 'vs/editor/browser/widget/codeEditorWidget';
-import { IEditorOptions } from 'vs/editor/common/config/editorOptions';
-import { Range } from 'vs/editor/common/core/range';
-import { Selection } from 'vs/editor/common/core/selection';
-import { MenuWorkbenchToolBar } from 'vs/platform/actions/browser/toolbar';
-import { MenuId } from 'vs/platform/actions/common/actions';
-import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
-import { IInstantiationService } from 'vs/platform/instantiation/common/instantiation';
-import { DEFAULT_EDITOR_MAX_DIMENSIONS, DEFAULT_EDITOR_MIN_DIMENSIONS } from 'vs/workbench/browser/parts/editor/editor';
-import { setStyle } from 'vs/workbench/contrib/mergeEditor/browser/utils';
-import { MergeEditorViewModel } from 'vs/workbench/contrib/mergeEditor/browser/view/viewModel';
+import { h } from '../../../../../../base/browser/dom.js';
+import { IView, IViewSize } from '../../../../../../base/browser/ui/grid/grid.js';
+import { Emitter, Event } from '../../../../../../base/common/event.js';
+import { Disposable, IDisposable } from '../../../../../../base/common/lifecycle.js';
+import { IObservable, autorun, derived, observableFromEvent } from '../../../../../../base/common/observable.js';
+import { EditorExtensionsRegistry, IEditorContributionDescription } from '../../../../../../editor/browser/editorExtensions.js';
+import { CodeEditorWidget } from '../../../../../../editor/browser/widget/codeEditor/codeEditorWidget.js';
+import { IEditorOptions } from '../../../../../../editor/common/config/editorOptions.js';
+import { Range } from '../../../../../../editor/common/core/range.js';
+import { Selection } from '../../../../../../editor/common/core/selection.js';
+import { CodeLensContribution } from '../../../../../../editor/contrib/codelens/browser/codelensController.js';
+import { FoldingController } from '../../../../../../editor/contrib/folding/browser/folding.js';
+import { MenuWorkbenchToolBar } from '../../../../../../platform/actions/browser/toolbar.js';
+import { MenuId } from '../../../../../../platform/actions/common/actions.js';
+import { IConfigurationService } from '../../../../../../platform/configuration/common/configuration.js';
+import { IInstantiationService } from '../../../../../../platform/instantiation/common/instantiation.js';
+import { DEFAULT_EDITOR_MAX_DIMENSIONS, DEFAULT_EDITOR_MIN_DIMENSIONS } from '../../../../../browser/parts/editor/editor.js';
+import { setStyle } from '../../utils.js';
+import { observableConfigValue } from '../../../../../../platform/observable/common/platformObservableUtils.js';
+import { MergeEditorViewModel } from '../viewModel.js';
 
 export abstract class CodeEditorView extends Disposable {
 	readonly model = this.viewModel.map(m => /** @description model */ m?.model);
 
 	protected readonly htmlElements = h('div.code-view', [
-		h('div.title@header', [
+		h('div.header@header', [
 			h('span.title@title'),
 			h('span.description@description'),
 			h('span.detail@detail'),
@@ -59,20 +62,9 @@ export abstract class CodeEditorView extends Disposable {
 		// snap?: boolean | undefined;
 	};
 
-	protected readonly checkboxesVisible = observableFromEvent<boolean>(
-		this.configurationService.onDidChangeConfiguration,
-		() => /** @description checkboxesVisible */ this.configurationService.getValue('mergeEditor.showCheckboxes') ?? false
-	);
-
-	protected readonly showDeletionMarkers = observableFromEvent<boolean>(
-		this.configurationService.onDidChangeConfiguration,
-		() => /** @description showDeletionMarkers */ this.configurationService.getValue('mergeEditor.showDeletionMarkers') ?? true
-	);
-
-	protected readonly useSimplifiedDecorations = observableFromEvent<boolean>(
-		this.configurationService.onDidChangeConfiguration,
-		() => /** @description useSimplifiedDecorations */ this.configurationService.getValue('mergeEditor.useSimplifiedDecorations') ?? false
-	);
+	protected readonly checkboxesVisible = observableConfigValue<boolean>('mergeEditor.showCheckboxes', false, this.configurationService);
+	protected readonly showDeletionMarkers = observableConfigValue<boolean>('mergeEditor.showDeletionMarkers', true, this.configurationService);
+	protected readonly useSimplifiedDecorations = observableConfigValue<boolean>('mergeEditor.useSimplifiedDecorations', false, this.configurationService);
 
 	public readonly editor = this.instantiationService.createInstance(
 		CodeEditorWidget,
@@ -87,17 +79,17 @@ export abstract class CodeEditorView extends Disposable {
 		this.editor.updateOptions(newOptions);
 	}
 
-	public readonly isFocused = observableFromEvent(
+	public readonly isFocused = observableFromEvent(this,
 		Event.any(this.editor.onDidBlurEditorWidget, this.editor.onDidFocusEditorWidget),
 		() => /** @description editor.hasWidgetFocus */ this.editor.hasWidgetFocus()
 	);
 
-	public readonly cursorPosition = observableFromEvent(
+	public readonly cursorPosition = observableFromEvent(this,
 		this.editor.onDidChangeCursorPosition,
 		() => /** @description editor.getPosition */ this.editor.getPosition()
 	);
 
-	public readonly selection = observableFromEvent(
+	public readonly selection = observableFromEvent(this,
 		this.editor.onDidChangeCursorSelection,
 		() => /** @description editor.getSelections */ this.editor.getSelections()
 	);
@@ -113,8 +105,8 @@ export abstract class CodeEditorView extends Disposable {
 
 	}
 
-	protected getEditorContributions(): IEditorContributionDescription[] | undefined {
-		return undefined;
+	protected getEditorContributions(): IEditorContributionDescription[] {
+		return EditorExtensionsRegistry.getEditorContributions().filter(c => c.id !== FoldingController.ID && c.id !== CodeLensContribution.ID);
 	}
 }
 
@@ -122,7 +114,8 @@ export function createSelectionsAutorun(
 	codeEditorView: CodeEditorView,
 	translateRange: (baseRange: Range, viewModel: MergeEditorViewModel) => Range
 ): IDisposable {
-	const selections = derived('selections', reader => {
+	const selections = derived(reader => {
+		/** @description selections */
 		const viewModel = codeEditorView.viewModel.read(reader);
 		if (!viewModel) {
 			return [];
@@ -134,7 +127,8 @@ export function createSelectionsAutorun(
 		return baseRange.rangesInBase.map(r => translateRange(r, viewModel));
 	});
 
-	return autorun('set selections', (reader) => {
+	return autorun(reader => {
+		/** @description set selections */
 		const ranges = selections.read(reader);
 		if (ranges.length === 0) {
 			return;
@@ -153,7 +147,7 @@ export class TitleMenu extends Disposable {
 
 		const toolbar = instantiationService.createInstance(MenuWorkbenchToolBar, targetHtmlElement, menuId, {
 			menuOptions: { renderShortTitle: true },
-			toolbarOptions: { primaryGroup: () => false }
+			toolbarOptions: { primaryGroup: (g) => g === 'primary' }
 		});
 		this._store.add(toolbar);
 	}

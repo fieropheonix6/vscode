@@ -3,23 +3,23 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { CancelablePromise, createCancelablePromise, disposableTimeout, ThrottledDelayer, timeout } from 'vs/base/common/async';
-import { CancellationToken } from 'vs/base/common/cancellation';
-import { toLocalISOString } from 'vs/base/common/date';
-import { toErrorMessage } from 'vs/base/common/errorMessage';
-import { isCancellationError } from 'vs/base/common/errors';
-import { Emitter, Event } from 'vs/base/common/event';
-import { Disposable, IDisposable, MutableDisposable, toDisposable } from 'vs/base/common/lifecycle';
-import { isWeb } from 'vs/base/common/platform';
-import { isEqual } from 'vs/base/common/resources';
-import { URI } from 'vs/base/common/uri';
-import { localize } from 'vs/nls';
-import { IProductService } from 'vs/platform/product/common/productService';
-import { IStorageService, StorageScope, StorageTarget } from 'vs/platform/storage/common/storage';
-import { ITelemetryService } from 'vs/platform/telemetry/common/telemetry';
-import { IUserDataSyncTask, IUserDataAutoSyncService, IUserDataManifest, IUserDataSyncLogService, IUserDataSyncEnablementService, IUserDataSyncService, IUserDataSyncStoreManagementService, IUserDataSyncStoreService, UserDataAutoSyncError, UserDataSyncError, UserDataSyncErrorCode } from 'vs/platform/userDataSync/common/userDataSync';
-import { IUserDataSyncAccountService } from 'vs/platform/userDataSync/common/userDataSyncAccount';
-import { IUserDataSyncMachinesService } from 'vs/platform/userDataSync/common/userDataSyncMachines';
+import { CancelablePromise, createCancelablePromise, disposableTimeout, ThrottledDelayer, timeout } from '../../../base/common/async.js';
+import { CancellationToken } from '../../../base/common/cancellation.js';
+import { toLocalISOString } from '../../../base/common/date.js';
+import { toErrorMessage } from '../../../base/common/errorMessage.js';
+import { isCancellationError } from '../../../base/common/errors.js';
+import { Emitter, Event } from '../../../base/common/event.js';
+import { Disposable, IDisposable, MutableDisposable, toDisposable } from '../../../base/common/lifecycle.js';
+import { isWeb } from '../../../base/common/platform.js';
+import { isEqual } from '../../../base/common/resources.js';
+import { URI } from '../../../base/common/uri.js';
+import { localize } from '../../../nls.js';
+import { IProductService } from '../../product/common/productService.js';
+import { IStorageService, StorageScope, StorageTarget } from '../../storage/common/storage.js';
+import { ITelemetryService } from '../../telemetry/common/telemetry.js';
+import { IUserDataSyncTask, IUserDataAutoSyncService, IUserDataManifest, IUserDataSyncLogService, IUserDataSyncEnablementService, IUserDataSyncService, IUserDataSyncStoreManagementService, IUserDataSyncStoreService, UserDataAutoSyncError, UserDataSyncError, UserDataSyncErrorCode } from './userDataSync.js';
+import { IUserDataSyncAccountService } from './userDataSyncAccount.js';
+import { IUserDataSyncMachinesService } from './userDataSyncMachines.js';
 
 type AutoSyncClassification = {
 	owner: 'sandy081';
@@ -31,7 +31,7 @@ type AutoSyncClassification = {
 type AutoSyncErrorClassification = {
 	owner: 'sandy081';
 	comment: 'Information about the error that causes auto sync to fail';
-	code: { classification: 'SystemMetaData'; purpose: 'FeatureInsight'; isMeasurement: true; comment: 'error code' };
+	code: { classification: 'SystemMetaData'; purpose: 'FeatureInsight'; comment: 'error code' };
 	service: { classification: 'SystemMetaData'; purpose: 'FeatureInsight'; comment: 'Settings sync service for which this error has occurred' };
 };
 
@@ -135,7 +135,7 @@ export class UserDataAutoSyncService extends Disposable implements IUserDataAuto
 		const { enabled, message } = this.isAutoSyncEnabled();
 		if (enabled) {
 			if (this.autoSync.value === undefined) {
-				this.autoSync.value = new AutoSync(this.lastSyncUrl, 1000 * 60 * 5 /* 5 miutes */, this.userDataSyncStoreManagementService, this.userDataSyncStoreService, this.userDataSyncService, this.userDataSyncMachinesService, this.logService, this.storageService);
+				this.autoSync.value = new AutoSync(this.lastSyncUrl, 1000 * 60 * 5 /* 5 miutes */, this.userDataSyncStoreManagementService, this.userDataSyncStoreService, this.userDataSyncService, this.userDataSyncMachinesService, this.logService, this.telemetryService, this.storageService);
 				this.autoSync.value.register(this.autoSync.value.onDidStartSync(() => this.lastSyncTriggerTime = new Date().getTime()));
 				this.autoSync.value.register(this.autoSync.value.onDidFinishSync(e => this.onDidFinishSync(e)));
 				if (this.startAutoSync()) {
@@ -403,6 +403,7 @@ class AutoSync extends Disposable {
 		private readonly userDataSyncService: IUserDataSyncService,
 		private readonly userDataSyncMachinesService: IUserDataSyncMachinesService,
 		private readonly logService: IUserDataSyncLogService,
+		private readonly telemetryService: ITelemetryService,
 		private readonly storageService: IStorageService,
 	) {
 		super();
@@ -423,7 +424,10 @@ class AutoSync extends Disposable {
 	}
 
 	private waitUntilNextIntervalAndSync(): void {
-		this.intervalHandler.value = disposableTimeout(() => this.sync(AutoSync.INTERVAL_SYNCING, false), this.interval);
+		this.intervalHandler.value = disposableTimeout(() => {
+			this.sync(AutoSync.INTERVAL_SYNCING, false);
+			this.intervalHandler.value = undefined;
+		}, this.interval);
 	}
 
 	sync(reason: string, disableCache: boolean): Promise<void> {
@@ -536,7 +540,15 @@ class AutoSync extends Disposable {
 			throw new UserDataAutoSyncError(localize('turned off machine', "Cannot sync because syncing is turned off on this machine from another machine."), UserDataSyncErrorCode.TurnedOff);
 		}
 
+		const startTime = new Date().getTime();
 		await this.syncTask.run();
+		this.telemetryService.publicLog2<{
+			duration: number;
+		}, {
+			owner: 'sandy081';
+			comment: 'Report when running a sync operation';
+			duration: { classification: 'SystemMetaData'; purpose: 'FeatureInsight'; comment: 'Time taken to run sync operation' };
+		}>('settingsSync:sync', { duration: new Date().getTime() - startTime });
 
 		// After syncing, get the manifest if it was not available before
 		if (this.manifest === null) {

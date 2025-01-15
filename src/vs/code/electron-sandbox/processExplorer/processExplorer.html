@@ -3,7 +3,34 @@
 <html>
 	<head>
 		<meta charset="utf-8" />
-		<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' https: data:; media-src 'none'; child-src 'self'; object-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https:; font-src 'self' https:;">
+		<meta
+			http-equiv="Content-Security-Policy"
+			content="
+				default-src
+					'none'
+				;
+				img-src
+					'self'
+					data:
+				;
+				script-src
+					'self'
+					blob:
+					'nonce-0c6a828f1297'
+				;
+				style-src
+					'self'
+					'unsafe-inline'
+				;
+				connect-src
+					'self'
+					https:
+				;
+				font-src
+					'self'
+				;
+		">
+		<link rel="stylesheet" href="./processExplorerMain.css">
 	</head>
 
 	<body aria-label="">
@@ -11,5 +38,5 @@
 	</body>
 
 	<!-- Startup (do not modify order of script tags!) -->
-	<script src="processExplorer.js"></script>
+	<script src="./processExplorer.js" type="module"></script>
 </html>

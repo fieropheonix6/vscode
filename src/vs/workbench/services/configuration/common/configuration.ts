@@ -3,13 +3,13 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { ConfigurationScope } from 'vs/platform/configuration/common/configurationRegistry';
-import { URI } from 'vs/base/common/uri';
-import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
-import { refineServiceDecorator } from 'vs/platform/instantiation/common/instantiation';
-import { Event } from 'vs/base/common/event';
-import { ResourceMap } from 'vs/base/common/map';
-import { IAnyWorkspaceIdentifier } from 'vs/platform/workspace/common/workspace';
+import { ConfigurationScope } from '../../../../platform/configuration/common/configurationRegistry.js';
+import { URI } from '../../../../base/common/uri.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { refineServiceDecorator } from '../../../../platform/instantiation/common/instantiation.js';
+import { Event } from '../../../../base/common/event.js';
+import { ResourceMap } from '../../../../base/common/map.js';
+import { IAnyWorkspaceIdentifier } from '../../../../platform/workspace/common/workspace.js';
 
 export const FOLDER_CONFIG_FOLDER_NAME = '.vscode';
 export const FOLDER_SETTINGS_NAME = 'settings';
@@ -84,6 +84,14 @@ export interface IWorkbenchConfigurationService extends IConfigurationService {
 	 * @param arg workspace Identifier
 	 */
 	initialize(arg: IAnyWorkspaceIdentifier): Promise<void>;
+
+	/**
+	 * Returns true if the setting can be applied for all profiles otherwise false.
+	 * @param setting
+	 */
+	isSettingAppliedForAllProfiles(setting: string): boolean;
 }
 
 export const TASKS_DEFAULT = '{\n\t\"version\": \"2.0.0\",\n\t\"tasks\": []\n}';
+
+export const APPLY_ALL_PROFILES_SETTING = 'workbench.settings.applyToAllProfiles';

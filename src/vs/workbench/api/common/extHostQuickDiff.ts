@@ -4,10 +4,12 @@
  *--------------------------------------------------------------------------------------------*/
 
 import type * as vscode from 'vscode';
-import { CancellationToken } from 'vs/base/common/cancellation';
-import { URI, UriComponents } from 'vs/base/common/uri';
-import { ExtHostQuickDiffShape, IMainContext, MainContext, MainThreadQuickDiffShape } from 'vs/workbench/api/common/extHost.protocol';
-import { asPromise } from 'vs/base/common/async';
+import { CancellationToken } from '../../../base/common/cancellation.js';
+import { URI, UriComponents } from '../../../base/common/uri.js';
+import { ExtHostQuickDiffShape, IMainContext, MainContext, MainThreadQuickDiffShape } from './extHost.protocol.js';
+import { asPromise } from '../../../base/common/async.js';
+import { DocumentSelector } from './extHostTypeConverters.js';
+import { IURITransformer } from '../../../base/common/uriIpc.js';
 
 export class ExtHostQuickDiff implements ExtHostQuickDiffShape {
 	private static handlePool: number = 0;
@@ -16,7 +18,8 @@ export class ExtHostQuickDiff implements ExtHostQuickDiffShape {
 	private providers: Map<number, vscode.QuickDiffProvider> = new Map();
 
 	constructor(
-		mainContext: IMainContext
+		mainContext: IMainContext,
+		private readonly uriTransformer: IURITransformer | undefined
 	) {
 		this.proxy = mainContext.getProxy(MainContext.MainThreadQuickDiff);
 	}
@@ -33,12 +36,15 @@ export class ExtHostQuickDiff implements ExtHostQuickDiffShape {
 			.then<UriComponents | null>(r => r || null);
 	}
 
-	async registerQuickDiffProvider(quickDiffProvider: vscode.QuickDiffProvider, label: string, rootUri?: vscode.Uri): Promise<vscode.Disposable> {
+	registerQuickDiffProvider(selector: vscode.DocumentSelector, quickDiffProvider: vscode.QuickDiffProvider, label: string, rootUri?: vscode.Uri): vscode.Disposable {
 		const handle = ExtHostQuickDiff.handlePool++;
 		this.providers.set(handle, quickDiffProvider);
-		await this.proxy.$registerQuickDiffProvider(handle, label, rootUri);
+		this.proxy.$registerQuickDiffProvider(handle, DocumentSelector.from(selector, this.uriTransformer), label, rootUri, quickDiffProvider.visible ?? true);
 		return {
-			dispose: () => this.providers.delete(handle)
+			dispose: () => {
+				this.proxy.$unregisterQuickDiffProvider(handle);
+				this.providers.delete(handle);
+			}
 		};
 	}
 }

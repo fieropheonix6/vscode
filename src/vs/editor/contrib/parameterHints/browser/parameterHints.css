@@ -10,7 +10,7 @@
 	flex-direction: column;
 	line-height: 1.5em;
 	cursor: default;
-	color: var(--vscode-editor-hoverForeground);
+	color: var(--vscode-editorHoverWidget-foreground);
 	background-color: var(--vscode-editorHoverWidget-background);
 	border: 1px solid var(--vscode-editorHoverWidget-border);
 }
@@ -67,6 +67,10 @@
 	padding-top: 4px;
 	opacity: 0.5;
 	border-bottom: 1px solid var(--vscode-editorHoverWidget-border);
+}
+
+.monaco-editor .parameter-hints-widget .code {
+	font-family: var(--vscode-parameterHintsWidget-editorFontFamily), var(--vscode-parameterHintsWidget-editorFontFamilyDefault);
 }
 
 .monaco-editor .parameter-hints-widget .docs {
