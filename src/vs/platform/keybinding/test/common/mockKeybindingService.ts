@@ -3,14 +3,14 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Event } from 'vs/base/common/event';
-import { ResolvedKeybinding, KeyCodeChord, Keybinding } from 'vs/base/common/keybindings';
-import { OS } from 'vs/base/common/platform';
-import { ContextKeyExpression, ContextKeyValue, IContextKey, IContextKeyChangeEvent, IContextKeyService, IContextKeyServiceTarget } from 'vs/platform/contextkey/common/contextkey';
-import { IKeybindingService, IKeyboardEvent } from 'vs/platform/keybinding/common/keybinding';
-import { IResolveResult } from 'vs/platform/keybinding/common/keybindingResolver';
-import { ResolvedKeybindingItem } from 'vs/platform/keybinding/common/resolvedKeybindingItem';
-import { USLayoutResolvedKeybinding } from 'vs/platform/keybinding/common/usLayoutResolvedKeybinding';
+import { Event } from '../../../../base/common/event.js';
+import { ResolvedKeybinding, KeyCodeChord, Keybinding } from '../../../../base/common/keybindings.js';
+import { OS } from '../../../../base/common/platform.js';
+import { ContextKeyExpression, ContextKeyValue, IContextKey, IContextKeyChangeEvent, IContextKeyService, IContextKeyServiceTarget, IScopedContextKeyService } from '../../../contextkey/common/contextkey.js';
+import { IKeybindingService, IKeyboardEvent } from '../../common/keybinding.js';
+import { NoMatchingKb, ResolutionResult } from '../../common/keybindingResolver.js';
+import { ResolvedKeybindingItem } from '../../common/resolvedKeybindingItem.js';
+import { USLayoutResolvedKeybinding } from '../../common/usLayoutResolvedKeybinding.js';
 
 class MockKeybindingContextKey<T extends ContextKeyValue = ContextKeyValue> implements IContextKey<T> {
 	private _defaultValue: T | undefined;
@@ -63,7 +63,7 @@ export class MockContextKeyService implements IContextKeyService {
 	public getContext(domNode: HTMLElement): any {
 		return null;
 	}
-	public createScoped(domNode: HTMLElement): IContextKeyService {
+	public createScoped(domNode: HTMLElement): IScopedContextKeyService {
 		return this;
 	}
 	public createOverlay(): IContextKeyService {
@@ -78,8 +78,8 @@ export class MockScopableContextKeyService extends MockContextKeyService {
 	/**
 	 * Don't implement this for all tests since we rarely depend on this behavior and it isn't implemented fully
 	 */
-	public override createScoped(domNote: HTMLElement): IContextKeyService {
-		return new MockContextKeyService();
+	public override createScoped(domNote: HTMLElement): IScopedContextKeyService {
+		return new MockScopableContextKeyService();
 	}
 }
 
@@ -135,8 +135,8 @@ export class MockKeybindingService implements IKeybindingService {
 		return 0;
 	}
 
-	public softDispatch(keybinding: IKeyboardEvent, target: IContextKeyServiceTarget): IResolveResult | null {
-		return null;
+	public softDispatch(keybinding: IKeyboardEvent, target: IContextKeyServiceTarget): ResolutionResult {
+		return NoMatchingKb;
 	}
 
 	public dispatchByUserSettingsLabel(userSettingsLabel: string, target: IContextKeyServiceTarget): void {
@@ -145,6 +145,10 @@ export class MockKeybindingService implements IKeybindingService {
 
 	public dispatchEvent(e: IKeyboardEvent, target: IContextKeyServiceTarget): boolean {
 		return false;
+	}
+
+	public enableKeybindingHoldMode(commandId: string): undefined {
+		return undefined;
 	}
 
 	public mightProducePrintableCharacter(e: IKeyboardEvent): boolean {

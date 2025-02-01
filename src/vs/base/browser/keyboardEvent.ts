@@ -3,10 +3,10 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import * as browser from 'vs/base/browser/browser';
-import { EVENT_KEY_CODE_MAP, KeyCode, KeyCodeUtils, KeyMod } from 'vs/base/common/keyCodes';
-import { KeyCodeChord } from 'vs/base/common/keybindings';
-import * as platform from 'vs/base/common/platform';
+import * as browser from './browser.js';
+import { EVENT_KEY_CODE_MAP, KeyCode, KeyCodeUtils, KeyMod } from '../common/keyCodes.js';
+import { KeyCodeChord } from '../common/keybindings.js';
+import * as platform from '../common/platform.js';
 
 
 
@@ -23,19 +23,22 @@ function extractKeyCode(e: KeyboardEvent): KeyCode {
 	if (keyCode === 3) {
 		return KeyCode.PauseBreak;
 	} else if (browser.isFirefox) {
-		if (keyCode === 59) {
-			return KeyCode.Semicolon;
-		} else if (keyCode === 107) {
-			return KeyCode.Equal;
-		} else if (keyCode === 109) {
-			return KeyCode.Minus;
-		} else if (platform.isMacintosh && keyCode === 224) {
-			return KeyCode.Meta;
+		switch (keyCode) {
+			case 59: return KeyCode.Semicolon;
+			case 60:
+				if (platform.isLinux) { return KeyCode.IntlBackslash; }
+				break;
+			case 61: return KeyCode.Equal;
+			// based on: https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/keyCode#numpad_keys
+			case 107: return KeyCode.NumpadAdd;
+			case 109: return KeyCode.NumpadSubtract;
+			case 173: return KeyCode.Minus;
+			case 224:
+				if (platform.isMacintosh) { return KeyCode.Meta; }
+				break;
 		}
 	} else if (browser.isWebKit) {
-		if (keyCode === 91) {
-			return KeyCode.Meta;
-		} else if (platform.isMacintosh && keyCode === 93) {
+		if (platform.isMacintosh && keyCode === 93) {
 			// the two meta keys in the Mac have different key codes (91 and 93)
 			return KeyCode.Meta;
 		} else if (!platform.isMacintosh && keyCode === 92) {
@@ -139,7 +142,7 @@ export class StandardKeyboardEvent implements IKeyboardEvent {
 		this.shiftKey = e.shiftKey;
 		this.altKey = e.altKey;
 		this.metaKey = e.metaKey;
-		this.altGraphKey = e.getModifierState('AltGraph');
+		this.altGraphKey = e.getModifierState?.('AltGraph');
 		this.keyCode = extractKeyCode(e);
 		this.code = e.code;
 

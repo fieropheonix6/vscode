@@ -3,16 +3,10 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { createDecorator } from 'vs/platform/instantiation/common/instantiation';
-import { IStringDictionary } from 'vs/base/common/collections';
-import { Event } from 'vs/base/common/event';
-
-export type DynamicRecommendation = 'dynamic';
-export type ConfigRecommendation = 'config';
-export type ExecutableRecommendation = 'executable';
-export type CachedRecommendation = 'cached';
-export type ApplicationRecommendation = 'application';
-export type ExperimentalRecommendation = 'experimental';
+import { createDecorator } from '../../../../platform/instantiation/common/instantiation.js';
+import { IStringDictionary } from '../../../../base/common/collections.js';
+import { Event } from '../../../../base/common/event.js';
+import { URI } from '../../../../base/common/uri.js';
 
 export const enum ExtensionRecommendationReason {
 	Workspace,
@@ -42,9 +36,10 @@ export interface IExtensionRecommendationsService {
 	getFileBasedRecommendations(): string[];
 	getExeBasedRecommendations(exe?: string): Promise<{ important: string[]; others: string[] }>;
 	getConfigBasedRecommendations(): Promise<{ important: string[]; others: string[] }>;
-	getWorkspaceRecommendations(): Promise<string[]>;
+	getWorkspaceRecommendations(): Promise<Array<string | URI>>;
 	getKeymapRecommendations(): string[];
 	getLanguageRecommendations(): string[];
+	getRemoteRecommendations(): string[];
 }
 
 export type IgnoredRecommendationChangeNotification = {

@@ -3,23 +3,29 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { localize } from 'vs/nls';
-import { Registry } from 'vs/platform/registry/common/platform';
-import { IWorkbenchContribution } from 'vs/workbench/common/contributions';
-import { Disposable } from 'vs/base/common/lifecycle';
-import { IConfigurationRegistry, Extensions as ConfigurationExtensions, IConfigurationNode, ConfigurationScope } from 'vs/platform/configuration/common/configurationRegistry';
-import { workbenchConfigurationNodeBase } from 'vs/workbench/common/configuration';
-import { IEditorResolverService, RegisteredEditorInfo, RegisteredEditorPriority } from 'vs/workbench/services/editor/common/editorResolverService';
-import { IJSONSchemaMap } from 'vs/base/common/jsonSchema';
-import { IExtensionService } from 'vs/workbench/services/extensions/common/extensions';
-import { coalesce } from 'vs/base/common/arrays';
-import { Event } from 'vs/base/common/event';
-import { IWorkbenchEnvironmentService } from 'vs/workbench/services/environment/common/environmentService';
-import { ByteSize, getLargeFileConfirmationLimit } from 'vs/platform/files/common/files';
+import { localize } from '../../../../nls.js';
+import { Registry } from '../../../../platform/registry/common/platform.js';
+import { IWorkbenchContribution } from '../../../common/contributions.js';
+import { Disposable } from '../../../../base/common/lifecycle.js';
+import { IConfigurationRegistry, Extensions as ConfigurationExtensions, IConfigurationNode, ConfigurationScope } from '../../../../platform/configuration/common/configurationRegistry.js';
+import { workbenchConfigurationNodeBase } from '../../../common/configuration.js';
+import { IEditorResolverService, RegisteredEditorInfo, RegisteredEditorPriority } from '../../../services/editor/common/editorResolverService.js';
+import { IJSONSchemaMap } from '../../../../base/common/jsonSchema.js';
+import { IExtensionService } from '../../../services/extensions/common/extensions.js';
+import { coalesce } from '../../../../base/common/arrays.js';
+import { Event } from '../../../../base/common/event.js';
+import { IWorkbenchEnvironmentService } from '../../../services/environment/common/environmentService.js';
+import { ByteSize, getLargeFileConfirmationLimit } from '../../../../platform/files/common/files.js';
 
 export class DynamicEditorConfigurations extends Disposable implements IWorkbenchContribution {
 
-	private static readonly AUTO_LOCK_DEFAULT_ENABLED = new Set<string>(['terminalEditor']);
+	static readonly ID = 'workbench.contrib.dynamicEditorConfigurations';
+
+	private static readonly AUTO_LOCK_DEFAULT_ENABLED = new Set<string>([
+		'terminalEditor',
+		'mainThreadWebview-simpleBrowser.view',
+		'mainThreadWebview-browserPreview'
+	]);
 
 	private static readonly AUTO_LOCK_EXTRA_EDITORS: RegisteredEditorInfo[] = [
 
@@ -34,6 +40,16 @@ export class DynamicEditorConfigurations extends Disposable implements IWorkbenc
 		{
 			id: 'mainThreadWebview-markdown.preview',
 			label: localize('markdownPreview', "Markdown Preview"),
+			priority: RegisteredEditorPriority.builtin
+		},
+		{
+			id: 'mainThreadWebview-simpleBrowser.view',
+			label: localize('simpleBrowser', "Simple Browser"),
+			priority: RegisteredEditorPriority.builtin
+		},
+		{
+			id: 'mainThreadWebview-browserPreview',
+			label: localize('livePreview', "Live Preview"),
 			priority: RegisteredEditorPriority.builtin
 		}
 	];
@@ -77,7 +93,7 @@ export class DynamicEditorConfigurations extends Disposable implements IWorkbenc
 	private registerListeners(): void {
 
 		// Registered editors (debounced to reduce perf overhead)
-		Event.debounce(this.editorResolverService.onDidChangeEditorRegistrations, (_, e) => e)(() => this.updateDynamicEditorConfigurations());
+		this._register(Event.debounce(this.editorResolverService.onDidChangeEditorRegistrations, (_, e) => e)(() => this.updateDynamicEditorConfigurations()));
 	}
 
 	private updateDynamicEditorConfigurations(): void {
@@ -137,7 +153,7 @@ export class DynamicEditorConfigurations extends Disposable implements IWorkbenc
 			properties: {
 				'workbench.editorAssociations': {
 					type: 'object',
-					markdownDescription: localize('editor.editorAssociations', "Configure glob patterns to editors (for example `\"*.hex\": \"hexEditor.hexedit\"`). These have precedence over the default behavior."),
+					markdownDescription: localize('editor.editorAssociations', "Configure [glob patterns](https://aka.ms/vscode-glob-patterns) to editors (for example `\"*.hex\": \"hexEditor.hexedit\"`). These have precedence over the default behavior."),
 					patternProperties: {
 						'.*': {
 							type: 'string',
@@ -158,7 +174,7 @@ export class DynamicEditorConfigurations extends Disposable implements IWorkbenc
 					default: getLargeFileConfirmationLimit(this.environmentService.remoteAuthority) / ByteSize.MB,
 					minimum: 1,
 					scope: ConfigurationScope.RESOURCE,
-					markdownDescription: localize('editorLargeFileSizeConfirmation', "Controls the minimum size of a file in MB before asking for confirmation when opening in the editor."),
+					markdownDescription: localize('editorLargeFileSizeConfirmation', "Controls the minimum size of a file in MB before asking for confirmation when opening in the editor. Note that this setting may not apply to all editor types and environments."),
 				}
 			}
 		};

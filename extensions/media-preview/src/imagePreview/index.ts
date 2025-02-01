@@ -113,8 +113,6 @@ class ImagePreview extends MediaPreview {
 		this.updateBinarySize();
 		this.render();
 		this.updateState();
-
-		this.webviewEditor.webview.postMessage({ type: 'setActive', value: this.webviewEditor.active });
 	}
 
 	public override dispose(): void {
@@ -135,6 +133,13 @@ class ImagePreview extends MediaPreview {
 		}
 	}
 
+	public copyImage() {
+		if (this.previewState === PreviewState.Active) {
+			this.webviewEditor.reveal();
+			this.webviewEditor.webview.postMessage({ type: 'copyImage' });
+		}
+	}
+
 	protected override updateState() {
 		super.updateState();
 
@@ -149,6 +154,10 @@ class ImagePreview extends MediaPreview {
 			this.sizeStatusBarEntry.hide(this);
 			this.zoomStatusBarEntry.hide(this);
 		}
+	}
+	protected override async render(): Promise<void> {
+		await super.render();
+		this.webviewEditor.webview.postMessage({ type: 'setActive', value: this.webviewEditor.active });
 	}
 
 	protected override async getWebviewContents(): Promise<string> {
@@ -173,10 +182,10 @@ class ImagePreview extends MediaPreview {
 
 	<link rel="stylesheet" href="${escapeAttribute(this.extensionResource('media', 'imagePreview.css'))}" type="text/css" media="screen" nonce="${nonce}">
 
-	<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: ${cspSource}; script-src 'nonce-${nonce}'; style-src ${cspSource} 'nonce-${nonce}';">
+	<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: ${cspSource}; connect-src ${cspSource}; script-src 'nonce-${nonce}'; style-src ${cspSource} 'nonce-${nonce}';">
 	<meta id="image-preview-settings" data-settings="${escapeAttribute(JSON.stringify(settings))}">
 </head>
-<body class="container image scale-to-fit loading">
+<body class="container image scale-to-fit loading" data-vscode-context='{ "preventDefaultContextMenuItems": true }'>
 	<div class="loading-indicator"></div>
 	<div class="image-load-error">
 		<p>${vscode.l10n.t("An error occurred while loading the image.")}</p>
@@ -229,6 +238,10 @@ export function registerImagePreviewSupport(context: vscode.ExtensionContext, bi
 
 	disposables.push(vscode.commands.registerCommand('imagePreview.zoomOut', () => {
 		previewManager.activePreview?.zoomOut();
+	}));
+
+	disposables.push(vscode.commands.registerCommand('imagePreview.copyImage', () => {
+		previewManager.activePreview?.copyImage();
 	}));
 
 	return vscode.Disposable.from(...disposables);

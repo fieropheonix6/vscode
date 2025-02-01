@@ -3,11 +3,11 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { IStringDictionary } from 'vs/base/common/collections';
-import { ProcessItem } from 'vs/base/common/processes';
-import { UriComponents } from 'vs/base/common/uri';
-import { createDecorator } from 'vs/platform/instantiation/common/instantiation';
-import { IWorkspace } from 'vs/platform/workspace/common/workspace';
+import { IStringDictionary } from '../../../base/common/collections.js';
+import { ProcessItem } from '../../../base/common/processes.js';
+import { UriComponents } from '../../../base/common/uri.js';
+import { createDecorator } from '../../instantiation/common/instantiation.js';
+import { IWorkspace } from '../../workspace/common/workspace.js';
 
 export const ID = 'diagnosticsService';
 export const IDiagnosticsService = createDecorator<IDiagnosticsService>(ID);
@@ -52,6 +52,10 @@ export interface SystemInfo extends IMachineInfo {
 
 export interface IRemoteDiagnosticInfo extends IDiagnosticInfo {
 	hostName: string;
+	latency?: {
+		current: number;
+		average: number;
+	};
 }
 
 export interface IRemoteDiagnosticError {
@@ -76,6 +80,8 @@ export interface WorkspaceStats {
 	fileCount: number;
 	maxFilesReached: boolean;
 	launchConfigFiles: WorkspaceStatItem[];
+	totalScanTime: number;
+	totalReaddirCount: number;
 }
 
 export interface PerformanceInfo {
@@ -124,16 +130,23 @@ export class NullDiagnosticsService implements IDiagnosticsService {
 }
 
 export interface IWindowDiagnostics {
+	readonly id: number;
 	readonly pid: number;
 	readonly title: string;
 	readonly folderURIs: UriComponents[];
 	readonly remoteAuthority?: string;
 }
 
+export interface IProcessDiagnostics {
+	readonly pid: number;
+	readonly name: string;
+}
+
 export interface IMainProcessDiagnostics {
 	readonly mainPID: number;
 	readonly mainArguments: string[]; // All arguments after argv[0], the exec path
 	readonly windows: IWindowDiagnostics[];
+	readonly pidToNames: IProcessDiagnostics[];
 	readonly screenReader: boolean;
 	readonly gpuFeatureStatus: any;
 }

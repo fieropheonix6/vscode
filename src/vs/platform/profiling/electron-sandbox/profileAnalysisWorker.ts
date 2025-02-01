@@ -3,16 +3,19 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { basename } from 'vs/base/common/path';
-import { TernarySearchTree } from 'vs/base/common/ternarySearchTree';
-import { URI } from 'vs/base/common/uri';
-import { IRequestHandler } from 'vs/base/common/worker/simpleWorker';
-import { IV8Profile, Utils } from 'vs/platform/profiling/common/profiling';
-import { IProfileModel, BottomUpSample, buildModel, BottomUpNode, processNode, CdpCallFrame } from 'vs/platform/profiling/common/profilingModel';
-import { BottomUpAnalysis, IProfileAnalysisWorker, ProfilingOutput } from 'vs/platform/profiling/electron-sandbox/profileAnalysisWorkerService';
+import { basename } from '../../../base/common/path.js';
+import { TernarySearchTree } from '../../../base/common/ternarySearchTree.js';
+import { URI } from '../../../base/common/uri.js';
+import { IRequestHandler, IWorkerServer } from '../../../base/common/worker/simpleWorker.js';
+import { IV8Profile, Utils } from '../common/profiling.js';
+import { IProfileModel, BottomUpSample, buildModel, BottomUpNode, processNode, CdpCallFrame } from '../common/profilingModel.js';
+import { BottomUpAnalysis, IProfileAnalysisWorker, ProfilingOutput } from './profileAnalysisWorkerService.js';
 
-
-export function create(): IRequestHandler {
+/**
+ * Defines the worker entry point. Must be exported and named `create`.
+ * @skipMangle
+ */
+export function create(workerServer: IWorkerServer): IRequestHandler {
 	return new ProfileAnalysisWorker();
 }
 
@@ -20,13 +23,13 @@ class ProfileAnalysisWorker implements IRequestHandler, IProfileAnalysisWorker {
 
 	_requestHandlerBrand: any;
 
-	analyseBottomUp(profile: IV8Profile): BottomUpAnalysis {
+	$analyseBottomUp(profile: IV8Profile): BottomUpAnalysis {
 		if (!Utils.isValidProfile(profile)) {
 			return { kind: ProfilingOutput.Irrelevant, samples: [] };
 		}
 
 		const model = buildModel(profile);
-		const samples = bottomUp(model, 5, false)
+		const samples = bottomUp(model, 5)
 			.filter(s => !s.isSpecial);
 
 		if (samples.length === 0 || samples[0].percentage < 10) {
@@ -38,7 +41,7 @@ class ProfileAnalysisWorker implements IRequestHandler, IProfileAnalysisWorker {
 		return { kind: ProfilingOutput.Interesting, samples };
 	}
 
-	analyseByUrlCategory(profile: IV8Profile, categories: [url: URI, category: string][]): [category: string, aggregated: number][] {
+	$analyseByUrlCategory(profile: IV8Profile, categories: [url: URI, category: string][]): [category: string, aggregated: number][] {
 
 		// build search tree
 		const searchTree = TernarySearchTree.forUris<string>();
@@ -57,7 +60,7 @@ class ProfileAnalysisWorker implements IRequestHandler, IProfileAnalysisWorker {
 				// ignore
 			}
 			if (!category) {
-				category = printCallFrame(loc.callFrame, false);
+				category = printCallFrameShort(loc.callFrame);
 			}
 			const value = aggegrateByCategory.get(category) ?? 0;
 			const newValue = value + node.selfTime;
@@ -76,11 +79,11 @@ function isSpecial(call: CdpCallFrame): boolean {
 	return call.functionName.startsWith('(') && call.functionName.endsWith(')');
 }
 
-function printCallFrame(frame: CdpCallFrame, fullPaths: boolean): string {
+function printCallFrameShort(frame: CdpCallFrame): string {
 	let result = frame.functionName || '(anonymous)';
 	if (frame.url) {
 		result += '#';
-		result += fullPaths ? frame.url : basename(frame.url);
+		result += basename(frame.url);
 		if (frame.lineNumber >= 0) {
 			result += ':';
 			result += frame.lineNumber + 1;
@@ -89,6 +92,24 @@ function printCallFrame(frame: CdpCallFrame, fullPaths: boolean): string {
 			result += ':';
 			result += frame.columnNumber + 1;
 		}
+	}
+	return result;
+}
+
+function printCallFrameStackLike(frame: CdpCallFrame): string {
+	let result = frame.functionName || '(anonymous)';
+	if (frame.url) {
+		result += ' (';
+		result += frame.url;
+		if (frame.lineNumber >= 0) {
+			result += ':';
+			result += frame.lineNumber + 1;
+		}
+		if (frame.columnNumber >= 0) {
+			result += ':';
+			result += frame.columnNumber + 1;
+		}
+		result += ')';
 	}
 	return result;
 }
@@ -107,7 +128,7 @@ function getHeaviestLocationIds(model: IProfileModel, topN: number) {
 	return new Set(locationIds);
 }
 
-function bottomUp(model: IProfileModel, topN: number, fullPaths: boolean = false) {
+function bottomUp(model: IProfileModel, topN: number) {
 	const root = BottomUpNode.root();
 	const locationIds = getHeaviestLocationIds(model, topN);
 
@@ -129,7 +150,8 @@ function bottomUp(model: IProfileModel, topN: number, fullPaths: boolean = false
 		const sample: BottomUpSample = {
 			selfTime: Math.round(node.selfTime / 1000),
 			totalTime: Math.round(node.aggregateTime / 1000),
-			location: printCallFrame(node.callFrame, fullPaths),
+			location: printCallFrameShort(node.callFrame),
+			absLocation: printCallFrameStackLike(node.callFrame),
 			url: node.callFrame.url,
 			caller: [],
 			percentage: Math.round(node.selfTime / (model.duration / 100)),
@@ -148,7 +170,11 @@ function bottomUp(model: IProfileModel, topN: number, fullPaths: boolean = false
 			}
 			if (top) {
 				const percentage = Math.round(top.selfTime / (node.selfTime / 100));
-				sample.caller.push({ percentage, location: printCallFrame(top.callFrame, false) });
+				sample.caller.push({
+					percentage,
+					location: printCallFrameShort(top.callFrame),
+					absLocation: printCallFrameStackLike(top.callFrame),
+				});
 				stack.push(top);
 			}
 		}

@@ -3,21 +3,21 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { $, addDisposableListener, clearNode, EventHelper, EventType, hide, isAncestor, show } from 'vs/base/browser/dom';
-import { StandardKeyboardEvent } from 'vs/base/browser/keyboardEvent';
-import { ActionBar } from 'vs/base/browser/ui/actionbar/actionbar';
-import { ButtonBar, ButtonWithDescription, IButtonStyles } from 'vs/base/browser/ui/button/button';
-import { ICheckboxStyles, Checkbox } from 'vs/base/browser/ui/toggle/toggle';
-import { IInputBoxStyles, InputBox } from 'vs/base/browser/ui/inputbox/inputBox';
-import { Action } from 'vs/base/common/actions';
-import { Codicon } from 'vs/base/common/codicons';
-import { ThemeIcon } from 'vs/base/common/themables';
-import { KeyCode, KeyMod } from 'vs/base/common/keyCodes';
-import { mnemonicButtonLabel } from 'vs/base/common/labels';
-import { Disposable } from 'vs/base/common/lifecycle';
-import { isLinux, isMacintosh } from 'vs/base/common/platform';
-import 'vs/css!./dialog';
-import * as nls from 'vs/nls';
+import { $, addDisposableListener, clearNode, EventHelper, EventType, getWindow, hide, isActiveElement, isAncestor, show } from '../../dom.js';
+import { StandardKeyboardEvent } from '../../keyboardEvent.js';
+import { ActionBar } from '../actionbar/actionbar.js';
+import { ButtonBar, ButtonWithDescription, IButtonStyles } from '../button/button.js';
+import { ICheckboxStyles, Checkbox } from '../toggle/toggle.js';
+import { IInputBoxStyles, InputBox } from '../inputbox/inputBox.js';
+import { Action } from '../../../common/actions.js';
+import { Codicon } from '../../../common/codicons.js';
+import { ThemeIcon } from '../../../common/themables.js';
+import { KeyCode, KeyMod } from '../../../common/keyCodes.js';
+import { mnemonicButtonLabel } from '../../../common/labels.js';
+import { Disposable } from '../../../common/lifecycle.js';
+import { isLinux, isMacintosh, isWindows } from '../../../common/platform.js';
+import './dialog.css';
+import * as nls from '../../../../nls.js';
 
 export interface IDialogInputOptions {
 	readonly placeholder?: string;
@@ -172,16 +172,16 @@ export class Dialog extends Disposable {
 	}
 
 	private getIconAriaLabel(): string {
-		const typeLabel = nls.localize('dialogInfoMessage', 'Info');
+		let typeLabel = nls.localize('dialogInfoMessage', 'Info');
 		switch (this.options.type) {
 			case 'error':
-				nls.localize('dialogErrorMessage', 'Error');
+				typeLabel = nls.localize('dialogErrorMessage', 'Error');
 				break;
 			case 'warning':
-				nls.localize('dialogWarningMessage', 'Warning');
+				typeLabel = nls.localize('dialogWarningMessage', 'Warning');
 				break;
 			case 'pending':
-				nls.localize('dialogPendingMessage', 'In Progress');
+				typeLabel = nls.localize('dialogPendingMessage', 'In Progress');
 				break;
 			case 'none':
 			case 'info':
@@ -198,10 +198,18 @@ export class Dialog extends Disposable {
 	}
 
 	async show(): Promise<IDialogResult> {
-		this.focusToReturn = document.activeElement as HTMLElement;
+		this.focusToReturn = this.container.ownerDocument.activeElement as HTMLElement;
 
 		return new Promise<IDialogResult>((resolve) => {
 			clearNode(this.buttonsContainer);
+
+			const close = () => {
+				resolve({
+					button: this.options.cancelId || 0,
+					checkboxChecked: this.checkbox ? this.checkbox.checked : undefined
+				});
+				return;
+			};
 
 			const buttonBar = this.buttonBar = this._register(new ButtonBar(this.buttonsContainer));
 			const buttonMap = this.rearrangeButtons(this.buttons, this.options.cancelId);
@@ -209,7 +217,7 @@ export class Dialog extends Disposable {
 			// Handle button clicks
 			buttonMap.forEach((entry, index) => {
 				const primary = buttonMap[index].index === 0;
-				const button = this.options.buttonDetails ? this._register(buttonBar.addButtonWithDescription({ title: true, secondary: !primary, ...this.buttonStyles })) : this._register(buttonBar.addButton({ title: true, secondary: !primary, ...this.buttonStyles }));
+				const button = this.options.buttonDetails ? this._register(buttonBar.addButtonWithDescription({ secondary: !primary, ...this.buttonStyles })) : this._register(buttonBar.addButton({ secondary: !primary, ...this.buttonStyles }));
 				button.label = mnemonicButtonLabel(buttonMap[index].label, true);
 				if (button instanceof ButtonWithDescription) {
 					button.description = this.options.buttonDetails![buttonMap[index].index];
@@ -228,6 +236,7 @@ export class Dialog extends Disposable {
 			});
 
 			// Handle keyboard events globally: Tab, Arrow-Left/Right
+			const window = getWindow(this.container);
 			this._register(addDisposableListener(window, 'keydown', e => {
 				const evt = new StandardKeyboardEvent(e);
 
@@ -243,6 +252,22 @@ export class Dialog extends Disposable {
 
 						resolve({
 							button: buttonMap.find(button => button.index !== this.options.cancelId)?.index ?? 0,
+							checkboxChecked: this.checkbox ? this.checkbox.checked : undefined,
+							values: this.inputs.length > 0 ? this.inputs.map(input => input.value) : undefined
+						});
+					}
+
+					return; // leave default handling
+				}
+
+				// Cmd+D (trigger the "no"/"do not save"-button) (macOS only)
+				if (isMacintosh && evt.equals(KeyMod.CtrlCmd | KeyCode.KeyD)) {
+					EventHelper.stop(e);
+
+					const noButton = buttonMap.find(button => button.index === 1 && button.index !== this.options.cancelId);
+					if (noButton) {
+						resolve({
+							button: noButton.index,
 							checkboxChecked: this.checkbox ? this.checkbox.checked : undefined,
 							values: this.inputs.length > 0 ? this.inputs.map(input => input.value) : undefined
 						});
@@ -268,7 +293,7 @@ export class Dialog extends Disposable {
 						const links = this.messageContainer.querySelectorAll('a');
 						for (const link of links) {
 							focusableElements.push(link);
-							if (link === document.activeElement) {
+							if (isActiveElement(link)) {
 								focusedIndex = focusableElements.length - 1;
 							}
 						}
@@ -299,10 +324,6 @@ export class Dialog extends Disposable {
 
 					// Focus next element (with wrapping)
 					if (evt.equals(KeyCode.Tab) || evt.equals(KeyCode.RightArrow)) {
-						if (focusedIndex === -1) {
-							focusedIndex = 0; // default to focus first element if none have focus
-						}
-
 						const newFocusedIndex = (focusedIndex + 1) % focusableElements.length;
 						focusableElements[newFocusedIndex].focus();
 					}
@@ -336,10 +357,7 @@ export class Dialog extends Disposable {
 				const evt = new StandardKeyboardEvent(e);
 
 				if (!this.options.disableCloseAction && evt.equals(KeyCode.Escape)) {
-					resolve({
-						button: this.options.cancelId || 0,
-						checkboxChecked: this.checkbox ? this.checkbox.checked : undefined
-					});
+					close();
 				}
 			}, true));
 
@@ -375,6 +393,8 @@ export class Dialog extends Disposable {
 						this.iconElement.classList.add(...ThemeIcon.asClassNameArray(Codicon.loading), spinModifierClassName);
 						break;
 					case 'none':
+						this.iconElement.classList.add('no-codicon');
+						break;
 					case 'info':
 					case 'question':
 					default:
@@ -429,8 +449,8 @@ export class Dialog extends Disposable {
 
 		this.shadowElement.style.boxShadow = shadowColor;
 
-		this.element.style.color = fgColor?.toString() ?? '';
-		this.element.style.backgroundColor = bgColor?.toString() ?? '';
+		this.element.style.color = fgColor ?? '';
+		this.element.style.backgroundColor = bgColor ?? '';
 		this.element.style.border = border;
 
 		// TODO fix
@@ -447,6 +467,8 @@ export class Dialog extends Disposable {
 
 		let color;
 		switch (this.options.type) {
+			case 'none':
+				break;
 			case 'error':
 				color = style.errorIconForeground;
 				break;
@@ -470,29 +492,52 @@ export class Dialog extends Disposable {
 			this.modalElement = undefined;
 		}
 
-		if (this.focusToReturn && isAncestor(this.focusToReturn, document.body)) {
+		if (this.focusToReturn && isAncestor(this.focusToReturn, this.container.ownerDocument.body)) {
 			this.focusToReturn.focus();
 			this.focusToReturn = undefined;
 		}
 	}
 
 	private rearrangeButtons(buttons: Array<string>, cancelId: number | undefined): ButtonMapEntry[] {
-		const buttonMap: ButtonMapEntry[] = [];
-		if (buttons.length === 0) {
-			return buttonMap;
+
+		// Maps each button to its current label and old index
+		// so that when we move them around it's not a problem
+		const buttonMap: ButtonMapEntry[] = buttons.map((label, index) => ({ label, index }));
+
+		if (buttons.length < 2) {
+			return buttonMap; // only need to rearrange if there are 2+ buttons
 		}
 
-		// Maps each button to its current label and old index so that when we move them around it's not a problem
-		buttons.forEach((button, index) => {
-			buttonMap.push({ label: button, index });
-		});
-
-		// macOS/linux: reverse button order if `cancelId` is defined
 		if (isMacintosh || isLinux) {
-			if (cancelId !== undefined && cancelId < buttons.length) {
+
+			// Linux: the GNOME HIG (https://developer.gnome.org/hig/patterns/feedback/dialogs.html?highlight=dialog)
+			// recommend the following:
+			// "Always ensure that the cancel button appears first, before the affirmative button. In left-to-right
+			//  locales, this is on the left. This button order ensures that users become aware of, and are reminded
+			//  of, the ability to cancel prior to encountering the affirmative button."
+
+			// macOS: the HIG (https://developer.apple.com/design/human-interface-guidelines/components/presentation/alerts)
+			// recommend the following:
+			// "Place buttons where people expect. In general, place the button people are most likely to choose on the trailing side in a
+			//  row of buttons or at the top in a stack of buttons. Always place the default button on the trailing side of a row or at the
+			//  top of a stack. Cancel buttons are typically on the leading side of a row or at the bottom of a stack."
+
+			if (typeof cancelId === 'number' && buttonMap[cancelId]) {
 				const cancelButton = buttonMap.splice(cancelId, 1)[0];
-				buttonMap.reverse();
-				buttonMap.splice(buttonMap.length - 1, 0, cancelButton);
+				buttonMap.splice(1, 0, cancelButton);
+			}
+
+			buttonMap.reverse();
+		} else if (isWindows) {
+
+			// Windows: the HIG (https://learn.microsoft.com/en-us/windows/win32/uxguide/win-dialog-box)
+			// recommend the following:
+			// "One of the following sets of concise commands: Yes/No, Yes/No/Cancel, [Do it]/Cancel,
+			//  [Do it]/[Don't do it], [Do it]/[Don't do it]/Cancel."
+
+			if (typeof cancelId === 'number' && buttonMap[cancelId]) {
+				const cancelButton = buttonMap.splice(cancelId, 1)[0];
+				buttonMap.push(cancelButton);
 			}
 		}
 

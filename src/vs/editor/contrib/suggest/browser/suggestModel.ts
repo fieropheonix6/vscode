@@ -3,32 +3,35 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { TimeoutTimer } from 'vs/base/common/async';
-import { CancellationTokenSource } from 'vs/base/common/cancellation';
-import { onUnexpectedError } from 'vs/base/common/errors';
-import { Emitter, Event } from 'vs/base/common/event';
-import { DisposableStore, dispose, IDisposable } from 'vs/base/common/lifecycle';
-import { getLeadingWhitespace, isHighSurrogate, isLowSurrogate } from 'vs/base/common/strings';
-import { ICodeEditor } from 'vs/editor/browser/editorBrowser';
-import { EditorOption } from 'vs/editor/common/config/editorOptions';
-import { CursorChangeReason, ICursorSelectionChangedEvent } from 'vs/editor/common/cursorEvents';
-import { IPosition, Position } from 'vs/editor/common/core/position';
-import { Selection } from 'vs/editor/common/core/selection';
-import { ITextModel } from 'vs/editor/common/model';
-import { CompletionContext, CompletionItemKind, CompletionItemProvider, CompletionTriggerKind } from 'vs/editor/common/languages';
-import { IEditorWorkerService } from 'vs/editor/common/services/editorWorker';
-import { WordDistance } from 'vs/editor/contrib/suggest/browser/wordDistance';
-import { IClipboardService } from 'vs/platform/clipboard/common/clipboardService';
-import { IConfigurationService } from 'vs/platform/configuration/common/configuration';
-import { IContextKeyService } from 'vs/platform/contextkey/common/contextkey';
-import { ILogService } from 'vs/platform/log/common/log';
-import { ITelemetryService } from 'vs/platform/telemetry/common/telemetry';
-import { CompletionModel } from './completionModel';
-import { CompletionDurations, CompletionItem, CompletionOptions, getSnippetSuggestSupport, provideSuggestionItems, QuickSuggestionsOptions, SnippetSortOrder } from './suggest';
-import { IWordAtPosition } from 'vs/editor/common/core/wordHelper';
-import { ILanguageFeaturesService } from 'vs/editor/common/services/languageFeatures';
-import { FuzzyScoreOptions } from 'vs/base/common/filters';
-import { assertType } from 'vs/base/common/types';
+import { TimeoutTimer } from '../../../../base/common/async.js';
+import { CancellationTokenSource } from '../../../../base/common/cancellation.js';
+import { onUnexpectedError } from '../../../../base/common/errors.js';
+import { Emitter, Event } from '../../../../base/common/event.js';
+import { DisposableStore, dispose, IDisposable } from '../../../../base/common/lifecycle.js';
+import { getLeadingWhitespace, isHighSurrogate, isLowSurrogate } from '../../../../base/common/strings.js';
+import { ICodeEditor } from '../../../browser/editorBrowser.js';
+import { EditorOption } from '../../../common/config/editorOptions.js';
+import { CursorChangeReason, ICursorSelectionChangedEvent } from '../../../common/cursorEvents.js';
+import { IPosition, Position } from '../../../common/core/position.js';
+import { Selection } from '../../../common/core/selection.js';
+import { ITextModel } from '../../../common/model.js';
+import { CompletionContext, CompletionItemKind, CompletionItemProvider, CompletionTriggerKind } from '../../../common/languages.js';
+import { IEditorWorkerService } from '../../../common/services/editorWorker.js';
+import { WordDistance } from './wordDistance.js';
+import { IClipboardService } from '../../../../platform/clipboard/common/clipboardService.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
+import { ILogService } from '../../../../platform/log/common/log.js';
+import { ITelemetryService } from '../../../../platform/telemetry/common/telemetry.js';
+import { CompletionModel } from './completionModel.js';
+import { CompletionDurations, CompletionItem, CompletionOptions, getSnippetSuggestSupport, provideSuggestionItems, QuickSuggestionsOptions, SnippetSortOrder } from './suggest.js';
+import { IWordAtPosition } from '../../../common/core/wordHelper.js';
+import { ILanguageFeaturesService } from '../../../common/services/languageFeatures.js';
+import { FuzzyScoreOptions } from '../../../../base/common/filters.js';
+import { assertType } from '../../../../base/common/types.js';
+import { InlineCompletionContextKeys } from '../../inlineCompletions/browser/controller/inlineCompletionContextKeys.js';
+import { SnippetController2 } from '../../snippet/browser/snippetController2.js';
+import { IEnvironmentService } from '../../../../platform/environment/common/environment.js';
 
 export interface ICancelEvent {
 	readonly retrigger: boolean;
@@ -71,7 +74,8 @@ export class LineContext {
 		if (!word) {
 			return false;
 		}
-		if (word.endColumn !== pos.column) {
+		if (word.endColumn !== pos.column &&
+			word.startColumn + 1 !== pos.column /* after typing a single character before a word */) {
 			return false;
 		}
 		if (!isNaN(Number(word.word))) {
@@ -101,25 +105,16 @@ export const enum State {
 	Auto = 2
 }
 
-function isSuggestPreviewEnabled(editor: ICodeEditor): boolean {
-	return editor.getOption(EditorOption.suggest).preview;
-}
-
 function canShowQuickSuggest(editor: ICodeEditor, contextKeyService: IContextKeyService, configurationService: IConfigurationService): boolean {
-	if (!Boolean(contextKeyService.getContextKeyValue('inlineSuggestionVisible'))) {
+	if (!Boolean(contextKeyService.getContextKeyValue(InlineCompletionContextKeys.inlineSuggestionVisible.key))) {
 		// Allow if there is no inline suggestion.
 		return true;
 	}
-
-	const allowQuickSuggestions = configurationService.getValue('editor.inlineSuggest.allowQuickSuggestions', { overrideIdentifier: editor.getModel()?.getLanguageId(), resource: editor.getModel()?.uri });
-	if (allowQuickSuggestions !== undefined) {
-		// Use setting if available.
-		return Boolean(allowQuickSuggestions);
+	const suppressSuggestions = contextKeyService.getContextKeyValue<boolean | undefined>(InlineCompletionContextKeys.suppressSuggestions.key);
+	if (suppressSuggestions !== undefined) {
+		return !suppressSuggestions;
 	}
-
-	// Don't allow if inline suggestions are visible and no suggest preview is configured.
-	// TODO disabled for copilot
-	return false && isSuggestPreviewEnabled(editor);
+	return !editor.getOption(EditorOption.inlineSuggest).suppressSuggestions;
 }
 
 function canShowSuggestOnTriggerCharacters(editor: ICodeEditor, contextKeyService: IContextKeyService, configurationService: IConfigurationService): boolean {
@@ -127,16 +122,11 @@ function canShowSuggestOnTriggerCharacters(editor: ICodeEditor, contextKeyServic
 		// Allow if there is no inline suggestion.
 		return true;
 	}
-
-	const allowQuickSuggestions = configurationService.getValue('editor.inlineSuggest.allowSuggestOnTriggerCharacters', { overrideIdentifier: editor.getModel()?.getLanguageId(), resource: editor.getModel()?.uri });
-	if (allowQuickSuggestions !== undefined) {
-		// Use setting if available.
-		return Boolean(allowQuickSuggestions);
+	const suppressSuggestions = contextKeyService.getContextKeyValue<boolean | undefined>(InlineCompletionContextKeys.suppressSuggestions.key);
+	if (suppressSuggestions !== undefined) {
+		return !suppressSuggestions;
 	}
-
-	// Don't allow if inline suggestions are visible and no suggest preview is configured.
-	// TODO disabled for copilot
-	return false && isSuggestPreviewEnabled(editor);
+	return !editor.getOption(EditorOption.inlineSuggest).suppressSuggestions;
 }
 
 export class SuggestModel implements IDisposable {
@@ -169,6 +159,7 @@ export class SuggestModel implements IDisposable {
 		@IContextKeyService private readonly _contextKeyService: IContextKeyService,
 		@IConfigurationService private readonly _configurationService: IConfigurationService,
 		@ILanguageFeaturesService private readonly _languageFeaturesService: ILanguageFeaturesService,
+		@IEnvironmentService private readonly _envService: IEnvironmentService,
 	) {
 		this._currentSelection = this._editor.getSelection() || new Selection(1, 1, 1, 1);
 
@@ -239,7 +230,10 @@ export class SuggestModel implements IDisposable {
 				let set = supportsByTriggerCharacter.get(ch);
 				if (!set) {
 					set = new Set();
-					set.add(getSnippetSuggestSupport());
+					const suggestSupport = getSnippetSuggestSupport();
+					if (suggestSupport) {
+						set.add(suggestSupport);
+					}
 					supportsByTriggerCharacter.set(ch, set);
 				}
 				set.add(support);
@@ -390,6 +384,11 @@ export class SuggestModel implements IDisposable {
 			return;
 		}
 
+		if (this._editor.getOption(EditorOption.suggest).snippetsPreventQuickSuggestions && SnippetController2.get(this._editor)?.isInSnippet()) {
+			// no quick suggestion when in snippet mode
+			return;
+		}
+
 		this.cancel();
 
 		this._triggerQuickSuggest.cancelAndSet(() => {
@@ -488,7 +487,7 @@ export class SuggestModel implements IDisposable {
 				break;
 		}
 
-		const { itemKind: itemKindFilter, showDeprecated } = SuggestModel._createSuggestFilter(this._editor);
+		const { itemKind: itemKindFilter, showDeprecated } = SuggestModel.createSuggestFilter(this._editor);
 		const completionOptions = new CompletionOptions(snippetSortOrder, options.completionOptions?.kindFilter ?? itemKindFilter, options.completionOptions?.providerFilter, options.completionOptions?.providerItemsToReuse, showDeprecated);
 		const wordDistance = WordDistance.create(this._editorWorkerService, this._editor);
 
@@ -550,6 +549,15 @@ export class SuggestModel implements IDisposable {
 			// finally report telemetry about durations
 			this._reportDurationsTelemetry(completions.durations);
 
+			// report invalid completions by source
+			if (!this._envService.isBuilt || this._envService.isExtensionDevelopment) {
+				for (const item of completions.items) {
+					if (item.isInvalid) {
+						this._logService.warn(`[suggest] did IGNORE invalid completion item from ${item.provider._debugDisplayName}`, item.completion);
+					}
+				}
+			}
+
 		}).catch(onUnexpectedError);
 	}
 
@@ -573,7 +581,7 @@ export class SuggestModel implements IDisposable {
 		});
 	}
 
-	private static _createSuggestFilter(editor: ICodeEditor): { itemKind: Set<CompletionItemKind>; showDeprecated: boolean } {
+	static createSuggestFilter(editor: ICodeEditor): { itemKind: Set<CompletionItemKind>; showDeprecated: boolean } {
 		// kind filter and snippet sort rules
 		const result = new Set<CompletionItemKind>();
 

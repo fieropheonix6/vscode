@@ -3,12 +3,12 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { ILogger, ILoggerOptions, AbstractMessageLogger, LogLevel, AbstractLoggerService } from 'vs/platform/log/common/log';
-import { MainThreadLoggerShape, MainContext, ExtHostLogLevelServiceShape as ExtHostLogLevelServiceShape } from 'vs/workbench/api/common/extHost.protocol';
-import { IExtHostInitDataService } from 'vs/workbench/api/common/extHostInitDataService';
-import { IExtHostRpcService } from 'vs/workbench/api/common/extHostRpcService';
-import { URI, UriComponents } from 'vs/base/common/uri';
-import { revive } from 'vs/base/common/marshalling';
+import { ILogger, ILoggerOptions, AbstractMessageLogger, LogLevel, AbstractLoggerService } from '../../../platform/log/common/log.js';
+import { MainThreadLoggerShape, MainContext, ExtHostLogLevelServiceShape as ExtHostLogLevelServiceShape } from './extHost.protocol.js';
+import { IExtHostInitDataService } from './extHostInitDataService.js';
+import { IExtHostRpcService } from './extHostRpcService.js';
+import { URI, UriComponents } from '../../../base/common/uri.js';
+import { revive } from '../../../base/common/marshalling.js';
 
 export class ExtHostLoggerService extends AbstractLoggerService implements ExtHostLogLevelServiceShape {
 
@@ -19,7 +19,7 @@ export class ExtHostLoggerService extends AbstractLoggerService implements ExtHo
 		@IExtHostRpcService rpc: IExtHostRpcService,
 		@IExtHostInitDataService initData: IExtHostInitDataService,
 	) {
-		super(initData.logLevel, initData.loggers.map(logger => revive(logger)));
+		super(initData.logLevel, initData.logsLocation, initData.loggers.map(logger => revive(logger)));
 		this._proxy = rpc.getProxy(MainContext.MainThreadLogger);
 	}
 
@@ -29,6 +29,11 @@ export class ExtHostLoggerService extends AbstractLoggerService implements ExtHo
 		} else {
 			this.setLogLevel(logLevel);
 		}
+	}
+
+	override setVisibility(resource: URI, visibility: boolean): void {
+		super.setVisibility(resource, visibility);
+		this._proxy.$setVisibility(resource, visibility);
 	}
 
 	protected doCreateLogger(resource: URI, logLevel: LogLevel, options?: ILoggerOptions): ILogger {
@@ -67,5 +72,9 @@ class Logger extends AbstractMessageLogger {
 
 	private doLog(messages: [LogLevel, string][]) {
 		this.proxy.$log(this.file, messages);
+	}
+
+	override flush(): void {
+		this.proxy.$flush(this.file);
 	}
 }
