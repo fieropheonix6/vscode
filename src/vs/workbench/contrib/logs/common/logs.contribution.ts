@@ -3,26 +3,24 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import * as nls from 'vs/nls';
-import { Registry } from 'vs/platform/registry/common/platform';
-import { Categories } from 'vs/platform/action/common/actionCommonCategories';
-import { Action2, registerAction2 } from 'vs/platform/actions/common/actions';
-import { SetLogLevelAction } from 'vs/workbench/contrib/logs/common/logsActions';
-import { IWorkbenchContribution, IWorkbenchContributionsRegistry, Extensions as WorkbenchExtensions } from 'vs/workbench/common/contributions';
-import { IWorkbenchEnvironmentService } from 'vs/workbench/services/environment/common/environmentService';
-import { IFileService, whenProviderRegistered } from 'vs/platform/files/common/files';
-import { IOutputChannelRegistry, IOutputService, Extensions } from 'vs/workbench/services/output/common/output';
-import { Disposable, toDisposable } from 'vs/base/common/lifecycle';
-import { ILogService, ILoggerResource, ILoggerService, LogLevel } from 'vs/platform/log/common/log';
-import { LifecyclePhase } from 'vs/workbench/services/lifecycle/common/lifecycle';
-import { IInstantiationService, ServicesAccessor } from 'vs/platform/instantiation/common/instantiation';
-import { extensionTelemetryLogChannelId, isLoggingOnly, supportsTelemetry } from 'vs/platform/telemetry/common/telemetryUtils';
-import { IProductService } from 'vs/platform/product/common/productService';
-import { URI } from 'vs/base/common/uri';
-import { rendererLogId, showWindowLogActionId } from 'vs/workbench/common/logConstants';
-import { createCancelablePromise, timeout } from 'vs/base/common/async';
-import { CancellationError, getErrorMessage, isCancellationError } from 'vs/base/common/errors';
-import { CancellationToken } from 'vs/base/common/cancellation';
+import * as nls from '../../../../nls.js';
+import { Registry } from '../../../../platform/registry/common/platform.js';
+import { Categories } from '../../../../platform/action/common/actionCommonCategories.js';
+import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
+import { SetLogLevelAction } from './logsActions.js';
+import { IWorkbenchContribution, IWorkbenchContributionsRegistry, Extensions as WorkbenchExtensions } from '../../../common/contributions.js';
+import { IOutputChannelRegistry, IOutputService, Extensions, isMultiSourceOutputChannelDescriptor, isSingleSourceOutputChannelDescriptor } from '../../../services/output/common/output.js';
+import { Disposable } from '../../../../base/common/lifecycle.js';
+import { CONTEXT_LOG_LEVEL, ILoggerResource, ILoggerService, LogLevel, LogLevelToString, isLogLevel } from '../../../../platform/log/common/log.js';
+import { LifecyclePhase } from '../../../services/lifecycle/common/lifecycle.js';
+import { IInstantiationService, ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
+import { Event } from '../../../../base/common/event.js';
+import { windowLogId, showWindowLogActionId } from '../../../services/log/common/logConstants.js';
+import { IDefaultLogLevelsService } from './defaultLogLevels.js';
+import { ContextKeyExpr, IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
+import { CounterSet } from '../../../../base/common/map.js';
+import { IUriIdentityService } from '../../../../platform/uriIdentity/common/uriIdentity.js';
+import { Schemas } from '../../../../base/common/network.js';
 
 registerAction2(class extends Action2 {
 	constructor() {
@@ -38,37 +36,70 @@ registerAction2(class extends Action2 {
 	}
 });
 
+registerAction2(class extends Action2 {
+	constructor() {
+		super({
+			id: 'workbench.action.setDefaultLogLevel',
+			title: nls.localize2('setDefaultLogLevel', "Set Default Log Level"),
+			category: Categories.Developer,
+		});
+	}
+	run(servicesAccessor: ServicesAccessor, logLevel: LogLevel, extensionId?: string): Promise<void> {
+		return servicesAccessor.get(IDefaultLogLevelsService).setDefaultLogLevel(logLevel, extensionId);
+	}
+});
+
 class LogOutputChannels extends Disposable implements IWorkbenchContribution {
 
+	private readonly contextKeys = new CounterSet<string>();
+	private readonly outputChannelRegistry = Registry.as<IOutputChannelRegistry>(Extensions.OutputChannels);
+
 	constructor(
-		@IWorkbenchEnvironmentService private readonly environmentService: IWorkbenchEnvironmentService,
-		@IProductService private readonly productService: IProductService,
-		@ILogService private readonly logService: ILogService,
 		@ILoggerService private readonly loggerService: ILoggerService,
-		@IFileService private readonly fileService: IFileService,
+		@IContextKeyService private readonly contextKeyService: IContextKeyService,
+		@IUriIdentityService private readonly uriIdentityService: IUriIdentityService,
 	) {
 		super();
-		this.registerLogOutputChannels(loggerService.getRegisteredLoggers());
+		const contextKey = CONTEXT_LOG_LEVEL.bindTo(contextKeyService);
+		contextKey.set(LogLevelToString(loggerService.getLogLevel()));
+		this._register(loggerService.onDidChangeLogLevel(e => {
+			if (isLogLevel(e)) {
+				contextKey.set(LogLevelToString(loggerService.getLogLevel()));
+			}
+		}));
+
+		this.onDidAddLoggers(loggerService.getRegisteredLoggers());
 		this._register(loggerService.onDidChangeLoggers(({ added, removed }) => {
-			this.registerLogOutputChannels(added);
-			this.deregisterLogOutputChannels(removed);
+			this.onDidAddLoggers(added);
+			this.onDidRemoveLoggers(removed);
 		}));
 		this._register(loggerService.onDidChangeVisibility(([resource, visibility]) => {
 			const logger = loggerService.getRegisteredLogger(resource);
 			if (logger) {
 				if (visibility) {
-					this.registerLogOutputChannels([logger]);
+					this.registerLogChannel(logger);
 				} else {
-					this.deregisterLogOutputChannels([logger]);
+					this.deregisterLogChannel(logger);
 				}
 			}
 		}));
-		this.registerExtensionHostTelemetryLog();
 		this.registerShowWindowLogAction();
+		this._register(Event.filter(contextKeyService.onDidChangeContext, e => e.affectsSome(this.contextKeys))(() => this.onDidChangeContext()));
 	}
 
-	private registerLogOutputChannels(loggers: Iterable<ILoggerResource>): void {
+	private onDidAddLoggers(loggers: Iterable<ILoggerResource>): void {
 		for (const logger of loggers) {
+			if (logger.when) {
+				const contextKeyExpr = ContextKeyExpr.deserialize(logger.when);
+				if (contextKeyExpr) {
+					for (const key of contextKeyExpr.keys()) {
+						this.contextKeys.add(key);
+					}
+					if (!this.contextKeyService.contextMatchesRules(contextKeyExpr)) {
+						continue;
+					}
+				}
+			}
 			if (logger.hidden) {
 				continue;
 			}
@@ -76,71 +107,93 @@ class LogOutputChannels extends Disposable implements IWorkbenchContribution {
 		}
 	}
 
-	private deregisterLogOutputChannels(loggers: Iterable<ILoggerResource>): void {
-		const outputChannelRegistry = Registry.as<IOutputChannelRegistry>(Extensions.OutputChannels);
-		for (const logger of loggers) {
-			outputChannelRegistry.removeChannel(logger.id);
+	private onDidChangeContext(): void {
+		for (const logger of this.loggerService.getRegisteredLoggers()) {
+			if (logger.when) {
+				if (this.contextKeyService.contextMatchesRules(ContextKeyExpr.deserialize(logger.when))) {
+					this.registerLogChannel(logger);
+				} else {
+					this.deregisterLogChannel(logger);
+				}
+			}
 		}
 	}
 
-	private registerExtensionHostTelemetryLog(): void {
-		// Not a perfect check, but a nice way to indicate if we only have logging enabled for debug purposes and nothing is actually being sent
-		const justLoggingAndNotSending = isLoggingOnly(this.productService, this.environmentService);
-		const logSuffix = justLoggingAndNotSending ? ' (Not Sent)' : '';
-		const isVisible = () => supportsTelemetry(this.productService, this.environmentService) && this.logService.getLevel() === LogLevel.Trace;
-		this.loggerService.registerLogger({ resource: this.environmentService.extHostTelemetryLogFile, id: extensionTelemetryLogChannelId, name: nls.localize('extensionTelemetryLog', "Extension Telemetry{0}", logSuffix), hidden: !isVisible() });
-		this._register(this.logService.onDidChangeLogLevel(() => this.loggerService.setVisibility(this.environmentService.extHostTelemetryLogFile, isVisible())));
+	private onDidRemoveLoggers(loggers: Iterable<ILoggerResource>): void {
+		for (const logger of loggers) {
+			if (logger.when) {
+				const contextKeyExpr = ContextKeyExpr.deserialize(logger.when);
+				if (contextKeyExpr) {
+					for (const key of contextKeyExpr.keys()) {
+						this.contextKeys.delete(key);
+					}
+				}
+			}
+			this.deregisterLogChannel(logger);
+		}
 	}
 
 	private registerLogChannel(logger: ILoggerResource): void {
-		const promise = createCancelablePromise(async token => {
-			await whenProviderRegistered(logger.resource, this.fileService);
-			const outputChannelRegistry = Registry.as<IOutputChannelRegistry>(Extensions.OutputChannels);
-			try {
-				await this.whenFileExists(logger.resource, 1, token);
-				outputChannelRegistry.registerChannel({ id: logger.id, label: logger.name ?? logger.id, file: logger.resource, log: true, extensionId: logger.extensionId });
-			} catch (error) {
-				if (!isCancellationError(error)) {
-					this.logService.error('Error while registering log channel', logger.resource.toString(), getErrorMessage(error));
-				}
-			}
-		});
-		this._register(toDisposable(() => promise.cancel()));
-	}
-
-	private async whenFileExists(file: URI, trial: number, token: CancellationToken): Promise<void> {
-		const exists = await this.fileService.exists(file);
-		if (exists) {
+		if (logger.group) {
+			this.registerCompoundLogChannel(logger.group.id, logger.group.name, logger);
 			return;
 		}
-		if (token.isCancellationRequested) {
-			throw new CancellationError();
+
+		const channel = this.outputChannelRegistry.getChannel(logger.id);
+		if (channel && isSingleSourceOutputChannelDescriptor(channel) && this.uriIdentityService.extUri.isEqual(channel.source.resource, logger.resource)) {
+			return;
 		}
-		if (trial > 10) {
-			throw new Error(`Timed out while waiting for file to be created`);
+
+		const existingChannel = this.outputChannelRegistry.getChannel(logger.id);
+		const remoteLogger = existingChannel && isSingleSourceOutputChannelDescriptor(existingChannel) && existingChannel.source.resource.scheme === Schemas.vscodeRemote ? this.loggerService.getRegisteredLogger(existingChannel.source.resource) : undefined;
+		if (remoteLogger) {
+			this.deregisterLogChannel(remoteLogger);
 		}
-		this.logService.debug(`[Registering Log Channel] File does not exist. Waiting for 1s to retry.`, file.toString());
-		await timeout(1000, token);
-		await this.whenFileExists(file, trial + 1, token);
+		const hasToAppendRemote = existingChannel && logger.resource.scheme === Schemas.vscodeRemote;
+		const id = hasToAppendRemote ? `${logger.id}.remote` : logger.id;
+		const label = hasToAppendRemote ? nls.localize('remote name', "{0} (Remote)", logger.name ?? logger.id) : logger.name ?? logger.id;
+		this.outputChannelRegistry.registerChannel({ id, label, source: { resource: logger.resource }, log: true, extensionId: logger.extensionId });
+	}
+
+	private registerCompoundLogChannel(id: string, name: string, logger: ILoggerResource): void {
+		const channel = this.outputChannelRegistry.getChannel(id);
+		const source = { resource: logger.resource, name: logger.name ?? logger.id };
+		if (channel) {
+			if (isMultiSourceOutputChannelDescriptor(channel) && !channel.source.some(({ resource }) => this.uriIdentityService.extUri.isEqual(resource, logger.resource))) {
+				this.outputChannelRegistry.updateChannelSources(id, [...channel.source, source]);
+			}
+		} else {
+			this.outputChannelRegistry.registerChannel({ id, label: name, log: true, source: [source] });
+		}
+	}
+
+	private deregisterLogChannel(logger: ILoggerResource): void {
+		if (logger.group) {
+			const channel = this.outputChannelRegistry.getChannel(logger.group.id);
+			if (channel && isMultiSourceOutputChannelDescriptor(channel)) {
+				this.outputChannelRegistry.updateChannelSources(logger.group.id, channel.source.filter(({ resource }) => !this.uriIdentityService.extUri.isEqual(resource, logger.resource)));
+			}
+		} else {
+			this.outputChannelRegistry.removeChannel(logger.id);
+		}
 	}
 
 	private registerShowWindowLogAction(): void {
-		registerAction2(class ShowWindowLogAction extends Action2 {
+		this._register(registerAction2(class ShowWindowLogAction extends Action2 {
 			constructor() {
 				super({
 					id: showWindowLogActionId,
-					title: { value: nls.localize('show window log', "Show Window Log"), original: 'Show Window Log' },
+					title: nls.localize2('show window log', "Show Window Log"),
 					category: Categories.Developer,
 					f1: true
 				});
 			}
 			async run(servicesAccessor: ServicesAccessor): Promise<void> {
 				const outputService = servicesAccessor.get(IOutputService);
-				outputService.showChannel(rendererLogId);
+				outputService.showChannel(windowLogId);
 			}
-		});
+		}));
 	}
-
 }
 
 Registry.as<IWorkbenchContributionsRegistry>(WorkbenchExtensions.Workbench).registerWorkbenchContribution(LogOutputChannels, LifecyclePhase.Restored);

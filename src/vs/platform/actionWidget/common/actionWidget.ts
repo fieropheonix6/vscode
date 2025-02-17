@@ -3,15 +3,12 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { IDisposable } from 'vs/base/common/lifecycle';
+import { IDisposable } from '../../../base/common/lifecycle.js';
 
 export interface ActionSet<T> extends IDisposable {
 	readonly validActions: readonly T[];
 	readonly allActions: readonly T[];
 	readonly hasAutoFix: boolean;
-}
-
-export interface IActionItem {
-	// TODO: Use generics
-	action: any;
+	readonly hasAIFix: boolean;
+	readonly allAIFixes: boolean;
 }

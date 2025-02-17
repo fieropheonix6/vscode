@@ -3,9 +3,9 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { CharCode } from 'vs/base/common/charCode';
-import { CharacterClassifier } from 'vs/editor/common/core/characterClassifier';
-import { ILink } from 'vs/editor/common/languages';
+import { CharCode } from '../../../base/common/charCode.js';
+import { CharacterClassifier } from '../core/characterClassifier.js';
+import { ILink } from '../languages.js';
 
 export interface ILinkComputerTarget {
 	getLineCount(): number;
@@ -155,12 +155,12 @@ function getClassifier(): CharacterClassifier<CharacterClass> {
 		_classifier = new CharacterClassifier<CharacterClass>(CharacterClass.None);
 
 		// allow-any-unicode-next-line
-		const FORCE_TERMINATION_CHARACTERS = ', \t<>\'\"、。｡､，．：；‘〈「『〔（［｛｢｣｝］）〕』」〉’｀～…';
+		const FORCE_TERMINATION_CHARACTERS = ' \t<>\'\"、。｡､，．：；‘〈「『〔（［｛｢｣｝］）〕』」〉’｀～…';
 		for (let i = 0; i < FORCE_TERMINATION_CHARACTERS.length; i++) {
 			_classifier.set(FORCE_TERMINATION_CHARACTERS.charCodeAt(i), CharacterClass.ForceTermination);
 		}
 
-		const CANNOT_END_WITH_CHARACTERS = '.;:';
+		const CANNOT_END_WITH_CHARACTERS = '.,;:';
 		for (let i = 0; i < CANNOT_END_WITH_CHARACTERS.length; i++) {
 			_classifier.set(CANNOT_END_WITH_CHARACTERS.charCodeAt(i), CharacterClass.CannotEndIn);
 		}
