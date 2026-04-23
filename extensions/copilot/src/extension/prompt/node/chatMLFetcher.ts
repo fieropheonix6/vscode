@@ -309,7 +309,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 			pendingLoggedChatRequest?.markTimeToFirstToken(timeToFirstToken);
 			switch (response.type) {
 				case FetchResponseKind.Success: {
-					const result = await this.processSuccessfulResponse(response, messages, requestBody, ourRequestId, maxResponseTokens, tokenCount, timeToFirstToken, streamRecorder, baseTelemetry, chatEndpoint, userInitiatedRequest, transport, actualFetcher, actualBytesReceived, suspendEventSeen, resumeEventSeen);
+					const result = await this.processSuccessfulResponse(response, messages, requestBody, ourRequestId, maxResponseTokens, tokenCount, timeToFirstToken, streamRecorder, baseTelemetry, chatEndpoint, userInitiatedRequest, requestKindOptions, transport, actualFetcher, actualBytesReceived, suspendEventSeen, resumeEventSeen);
 
 					// Handle FilteredRetry case with augmented messages
 					if (result.type === ChatFetchResponseType.FilteredRetry) {
@@ -469,6 +469,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 							model: chatEndpoint.model,
 							apiType: chatEndpoint.apiType,
 							transport,
+							requestKindOptions,
 							associatedRequestId: telemetryProperties.associatedRequestId,
 							retryAfterError: telemetryProperties.retryAfterError,
 							retryAfterErrorGitHubRequestId: telemetryProperties.retryAfterErrorGitHubRequestId,
@@ -546,6 +547,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 						timeToFirstToken,
 						isVisionRequest: this.filterImageMessages(messages),
 						transport,
+						requestKindOptions,
 						fetcher: actualFetcher,
 						bytesReceived: actualBytesReceived,
 						issuedTime: baseTelemetry.issuedTime,
@@ -615,6 +617,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 						model: chatEndpoint.model,
 						apiType: chatEndpoint.apiType,
 						transport,
+						requestKindOptions,
 						associatedRequestId: telemetryProperties.associatedRequestId,
 						retryAfterError: telemetryProperties.retryAfterError,
 						retryAfterErrorGitHubRequestId: telemetryProperties.retryAfterErrorGitHubRequestId,
@@ -649,6 +652,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 					timeToFirstToken: timeToError,
 					isVisionRequest: this.filterImageMessages(messages),
 					transport,
+					requestKindOptions,
 					fetcher: actualFetcher,
 					bytesReceived: err.bytesReceived,
 					issuedTime: baseTelemetry.issuedTime,
@@ -789,6 +793,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 				timeToFirstToken: timeToError,
 				isVisionRequest: this.filterImageMessages(opts.messages),
 				transport,
+				requestKindOptions: opts.requestKindOptions,
 				fetcher: actualFetcher,
 				bytesReceived,
 				issuedTime: baseTelemetry.issuedTime,
@@ -1723,6 +1728,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 		baseTelemetry: TelemetryData,
 		chatEndpointInfo: IChatEndpoint,
 		userInitiatedRequest: boolean | undefined,
+		requestKindOptions: IBackgroundRequestOptions | ISubagentRequestOptions | undefined,
 		transport: string,
 		fetcher: FetcherId | undefined,
 		bytesReceived: number | undefined,
@@ -1739,6 +1745,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 					chatCompletion,
 					baseTelemetry,
 					userInitiatedRequest,
+					requestKindOptions,
 					chatEndpointInfo,
 					requestBody,
 					maxResponseTokens,
