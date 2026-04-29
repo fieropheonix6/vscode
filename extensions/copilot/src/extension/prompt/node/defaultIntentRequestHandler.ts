@@ -732,7 +732,7 @@ class DefaultToolCallingLoop extends ToolCallingLoop<IDefaultToolLoopOptions> {
 			},
 			requestKindOptions: this.options.request.subAgentInvocationId
 				? { kind: 'subagent' }
-				: undefined,
+				: { kind: 'mainagent' },
 			enableRetryOnFilter: true
 		}, token);
 	}

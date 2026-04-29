@@ -211,7 +211,7 @@ export interface IMakeChatRequestOptions {
 	 * Options for the kind of request being made (e.g. subagent). Controls the X-Interaction-Type header.
 	 * See notes on each interface.
 	 */
-	requestKindOptions?: IBackgroundRequestOptions | ISubagentRequestOptions;
+	requestKindOptions?: IRequestKindOptions;
 }
 
 export type IChatRequestTelemetryProperties = {
@@ -351,7 +351,7 @@ export interface INetworkRequestOptions {
 	readonly useFetcher?: FetcherId;
 	readonly canRetryOnce?: boolean;
 	readonly location?: ChatLocation;
-	readonly requestKindOptions?: IBackgroundRequestOptions | ISubagentRequestOptions;
+	readonly requestKindOptions?: IRequestKindOptions;
 }
 
 /**
@@ -367,6 +367,17 @@ export interface IBackgroundRequestOptions {
 export interface ISubagentRequestOptions {
 	readonly kind: 'subagent';
 }
+
+/**
+ * A normal request is a primary user-initiated chat turn (e.g. driven by the
+ * default intent request handler or inline chat). Callers explicitly opt in to
+ * 'mainagent' so the chat ML fetcher can default unmarked requests to 'background'.
+ */
+export interface IMainAgentRequestOptions {
+	readonly kind: 'mainagent';
+}
+
+export type IRequestKindOptions = IBackgroundRequestOptions | ISubagentRequestOptions | IMainAgentRequestOptions;
 
 function networkRequest(
 	accessor: ServicesAccessor,

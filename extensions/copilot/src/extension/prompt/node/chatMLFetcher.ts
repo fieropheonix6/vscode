@@ -21,7 +21,7 @@ import { getResponsesApiCompactionThresholdFromBody, OpenAIResponsesProcessor, r
 import { collectSingleLineErrorMessage, ILogService } from '../../../platform/log/common/logService';
 import { FinishedCallback, getRequestId, IResponseDelta, OptionalChatRequestParams, RequestId } from '../../../platform/networking/common/fetch';
 import { FetcherId, IFetcherService, Response } from '../../../platform/networking/common/fetcherService';
-import { IBackgroundRequestOptions, IChatEndpoint, IEndpointBody, ISubagentRequestOptions, postRequest, stringifyUrlOrRequestMetadata } from '../../../platform/networking/common/networking';
+import { IChatEndpoint, IEndpointBody, IRequestKindOptions, postRequest, stringifyUrlOrRequestMetadata } from '../../../platform/networking/common/networking';
 import { CAPIChatMessage, ChatCompletion, FilterReason, FinishedCompletionReason, rawMessageToCAPI } from '../../../platform/networking/common/openai';
 import { sendEngineMessagesTelemetry } from '../../../platform/networking/node/chatStream';
 import { CAPIWebSocketErrorEvent, IChatWebSocketManager, isCAPIWebSocketError } from '../../../platform/networking/node/chatWebSocketManager';
@@ -137,6 +137,13 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 	 */
 	public async fetchMany(opts: IFetchMLOptions, token: CancellationToken): Promise<ChatResponses> {
 		let { debugName, endpoint: chatEndpoint, finishedCb, location, messages, requestOptions, source, telemetryProperties, userInitiatedRequest, requestKindOptions, conversationId, turnId, useWebSocket, ignoreStatefulMarker } = opts;
+		// Default any unmarked request to 'background'. Primary user turns
+		// (defaultIntentRequestHandler, inlineChatIntent, copilotcli sessions, etc.)
+		// explicitly opt in to 'mainagent'. This way new utility callers get classified
+		// correctly without each one having to remember to opt in.
+		if (!requestKindOptions) {
+			requestKindOptions = { kind: 'background' };
+		}
 		if (useWebSocket && this._consecutiveWebSocketRetryFallbacks >= ChatMLFetcherImpl._maxConsecutiveWebSocketFallbacks) {
 			this._logService.debug(`[ChatWebSocketManager] Disabling WebSocket for request due to ${this._consecutiveWebSocketRetryFallbacks} consecutive WebSocket failures with successful HTTP fallback.`);
 			useWebSocket = false;
@@ -470,7 +477,9 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 							apiType: chatEndpoint.apiType,
 							transport,
 							requestKindOptions,
+							conversationId: telemetryProperties.conversationId ?? conversationId,
 							associatedRequestId: telemetryProperties.associatedRequestId,
+							parentRequestId: telemetryProperties.parentRequestId,
 							retryAfterError: telemetryProperties.retryAfterError,
 							retryAfterErrorGitHubRequestId: telemetryProperties.retryAfterErrorGitHubRequestId,
 							connectivityTestError: telemetryProperties.connectivityTestError,
@@ -618,7 +627,9 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 						apiType: chatEndpoint.apiType,
 						transport,
 						requestKindOptions,
+						conversationId: telemetryProperties.conversationId ?? conversationId,
 						associatedRequestId: telemetryProperties.associatedRequestId,
+						parentRequestId: telemetryProperties.parentRequestId,
 						retryAfterError: telemetryProperties.retryAfterError,
 						retryAfterErrorGitHubRequestId: telemetryProperties.retryAfterErrorGitHubRequestId,
 						connectivityTestError: telemetryProperties.connectivityTestError,
@@ -853,7 +864,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 		telemetryProperties?: TelemetryProperties | undefined,
 		useFetcher?: FetcherId,
 		canRetryOnce?: boolean,
-		requestKindOptions?: IBackgroundRequestOptions | ISubagentRequestOptions,
+		requestKindOptions?: IRequestKindOptions,
 		summarizedAtRoundId?: string,
 	): Promise<{ result: ChatResults | ChatRequestFailed | ChatRequestCanceled; fetcher?: FetcherId; bytesReceived?: number; statusCode?: number; suspendEventSeen?: boolean; resumeEventSeen?: boolean; otelSpan?: ISpanHandle }> {
 		const isPowerSaveBlockerEnabled = this._configurationService.getExperimentBasedConfig(ConfigKey.TeamInternal.ChatRequestPowerSaveBlocker, this._experimentationService);
@@ -930,7 +941,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 		telemetryProperties?: TelemetryProperties | undefined,
 		useFetcher?: FetcherId,
 		canRetryOnce?: boolean,
-		requestKindOptions?: IBackgroundRequestOptions | ISubagentRequestOptions,
+		requestKindOptions?: IRequestKindOptions,
 		summarizedAtRoundId?: string,
 	): Promise<{ result: ChatResults | ChatRequestFailed | ChatRequestCanceled; fetcher?: FetcherId; bytesReceived?: number; statusCode?: number; otelSpan?: ISpanHandle }> {
 
@@ -1061,7 +1072,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 		countTokens: () => Promise<number>,
 		userInitiatedRequest: boolean | undefined,
 		telemetryProperties: TelemetryProperties | undefined,
-		requestKindOptions: IBackgroundRequestOptions | ISubagentRequestOptions | undefined,
+		requestKindOptions: IRequestKindOptions | undefined,
 		summarizedAtRoundId: string | undefined,
 	): Promise<{ result: ChatResults | ChatRequestFailed | ChatRequestCanceled }> {
 		const intent = locationToIntent(location);
@@ -1243,7 +1254,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 		telemetryProperties: TelemetryProperties | undefined,
 		useFetcher: FetcherId | undefined,
 		canRetryOnce: boolean | undefined,
-		requestKindOptions: IBackgroundRequestOptions | ISubagentRequestOptions | undefined,
+		requestKindOptions: IRequestKindOptions | undefined,
 	): Promise<{ result: ChatResults | ChatRequestFailed | ChatRequestCanceled; fetcher?: FetcherId; bytesReceived?: number; statusCode?: number }> {
 		// Generate unique ID to link input and output messages
 		const modelCallId = generateUuid();
@@ -1357,7 +1368,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 		telemetryProperties?: TelemetryProperties,
 		useFetcher?: FetcherId,
 		canRetryOnce?: boolean,
-		requestKindOptions?: IBackgroundRequestOptions | ISubagentRequestOptions,
+		requestKindOptions?: IRequestKindOptions,
 	): Promise<Response> {
 
 		// If request contains an image, we include this header.
@@ -1728,7 +1739,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 		baseTelemetry: TelemetryData,
 		chatEndpointInfo: IChatEndpoint,
 		userInitiatedRequest: boolean | undefined,
-		requestKindOptions: IBackgroundRequestOptions | ISubagentRequestOptions | undefined,
+		requestKindOptions: IRequestKindOptions | undefined,
 		transport: string,
 		fetcher: FetcherId | undefined,
 		bytesReceived: number | undefined,

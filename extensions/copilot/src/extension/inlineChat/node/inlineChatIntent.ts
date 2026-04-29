@@ -468,6 +468,7 @@ class InlineChatEditToolsStrategy implements IInlineChatEditStrategy {
 				conversationId: telemetry.sessionId,
 				messageSource: this._intent.id
 			},
+			requestKindOptions: { kind: 'mainagent' },
 			finishedCb: async (_text, _index, delta) => {
 
 				telemetry.markReceivedToken();
@@ -667,6 +668,7 @@ class InlineChatEditHeuristicStrategy implements IInlineChatEditStrategy {
 				conversationId: telemetry.sessionId,
 				messageSource: this._intent.id
 			},
+			requestKindOptions: { kind: 'mainagent' },
 			requestOptions: {
 				stream: true,
 				prediction
