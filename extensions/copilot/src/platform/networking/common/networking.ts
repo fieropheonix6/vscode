@@ -369,6 +369,15 @@ export interface ISubagentRequestOptions {
 }
 
 /**
+ * A summarization request — used for compacting conversation history (both
+ * inline mid-turn and post-turn). Distinct from 'background' because it's
+ * directly in the critical path of a user turn.
+ */
+export interface ISummarizationRequestOptions {
+	readonly kind: 'summarization';
+}
+
+/**
  * A normal request is a primary user-initiated chat turn (e.g. driven by the
  * default intent request handler or inline chat). Callers explicitly opt in to
  * 'mainagent' so the chat ML fetcher can default unmarked requests to 'background'.
@@ -377,7 +386,7 @@ export interface IMainAgentRequestOptions {
 	readonly kind: 'mainagent';
 }
 
-export type IRequestKindOptions = IBackgroundRequestOptions | ISubagentRequestOptions | IMainAgentRequestOptions;
+export type IRequestKindOptions = IBackgroundRequestOptions | ISubagentRequestOptions | ISummarizationRequestOptions | IMainAgentRequestOptions;
 
 function networkRequest(
 	accessor: ServicesAccessor,

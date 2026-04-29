@@ -864,6 +864,7 @@ export class AgentIntentInvocation extends EditCodeIntentInvocation implements I
 						modelCapabilities,
 						telemetryProperties: associatedRequestId ? { associatedRequestId } : undefined,
 						enableRetryOnFilter: true,
+						requestKindOptions: { kind: 'summarization' },
 					}, bgToken);
 					if (response.type !== ChatFetchResponseType.Success) {
 						throw new Error(`Background inline summarization request failed: ${response.type}`);

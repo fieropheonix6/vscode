@@ -749,7 +749,8 @@ class ConversationHistorySummarizer {
 					...toolOpts
 				},
 				telemetryProperties: associatedRequestId ? { associatedRequestId } : undefined,
-				enableRetryOnFilter: true
+				enableRetryOnFilter: true,
+				requestKindOptions: { kind: 'summarization' }
 			}, this.token ?? CancellationToken.None);
 		} catch (e) {
 			this.logInfo(`Error from summarization request. ${e.message}`, mode);
