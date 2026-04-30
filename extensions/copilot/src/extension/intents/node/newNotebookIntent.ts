@@ -10,7 +10,7 @@ import { ChatFetchResponseType, ChatLocation } from '../../../platform/chat/comm
 import { IConversationOptions } from '../../../platform/chat/common/conversationOptions';
 import { ILogService } from '../../../platform/log/common/logService';
 import { IResponseDelta } from '../../../platform/networking/common/fetch';
-import { IChatEndpoint } from '../../../platform/networking/common/networking';
+import { IChatEndpoint, RequestKind } from '../../../platform/networking/common/networking';
 import { IAlternativeNotebookContentEditGenerator, NotebookEditGenerationTelemtryOptions, NotebookEditGenrationSource } from '../../../platform/notebook/common/alternativeContentEditGenerator';
 import { ITelemetryService } from '../../../platform/telemetry/common/telemetry';
 import { IWorkspaceService } from '../../../platform/workspace/common/workspaceService';
@@ -188,13 +188,13 @@ export class NewNotebookResponseProcessor {
 					return undefined;
 				}
 
-				const generateResponse = await this.endpoint.makeChatRequest(
-					'newNotebookCodeCell',
-					generateMessages,
+				const generateResponse = await this.endpoint.makeChatRequest2({
+					debugName: 'newNotebookCodeCell',
+					messages: generateMessages,
 					finishedCb,
-					token,
-					ChatLocation.Panel
-				);
+					location: ChatLocation.Panel,
+					requestKindOptions: { kind: RequestKind.MainAgent },
+				}, token);
 				sourceStream.resolve();
 				if (generateResponse.type !== ChatFetchResponseType.Success) {
 					return [];
@@ -257,13 +257,13 @@ export async function newNotebookCodeCell(instantiationService: IInstantiationSe
 		uri
 	});
 
-	const modelResponse = await endpoint.makeChatRequest(
-		'newNotebookCodeCell',
+	const modelResponse = await endpoint.makeChatRequest2({
+		debugName: 'newNotebookCodeCell',
 		messages,
-		undefined,
-		token,
-		ChatLocation.Panel
-	);
+finishedCb: undefined,
+		location: ChatLocation.Panel,
+		requestKindOptions: { kind: RequestKind.MainAgent },
+	}, token);
 	if (modelResponse.type !== ChatFetchResponseType.Success) {
 		return;
 	}
@@ -288,13 +288,13 @@ export async function improveNotebookCodeCell(instantiationService: IInstantiati
 		uri
 	});
 
-	const modelResponse = await endpoint.makeChatRequest(
-		'improveNotebookCodeCell',
+	const modelResponse = await endpoint.makeChatRequest2({
+		debugName: 'improveNotebookCodeCell',
 		messages,
-		undefined,
-		token,
-		ChatLocation.Panel
-	);
+finishedCb: undefined,
+		location: ChatLocation.Panel,
+		requestKindOptions: { kind: RequestKind.MainAgent },
+	}, token);
 	if (modelResponse.type !== ChatFetchResponseType.Success) {
 		return;
 	}

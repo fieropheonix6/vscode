@@ -381,27 +381,43 @@ export interface INetworkRequestOptions {
  * Classifies a chat request for telemetry (`requestKind` on response events) and the
  * `X-Interaction-Type` header sent to CAPI.
  *
- * - `Background`: out-of-band utility request not directly tied to a user turn (default).
- * - `Subagent`: a request made by a subagent loop (search/execution); also indicated to
- *   the server with `X-Interaction-Type: conversation-subagent`.
- * - `Summarization`: conversation-history compaction in the critical path of a user turn.
- * - `MainAgent`: a primary user-initiated chat turn (panel chat, inline chat).
- * - `Nes`: Next Edit Suggestion — speculative inline edit prediction (xtab).
- *
- * Callers opt in to a non-default kind via `RequestKind.<Member>`. Anything that doesn't
- * set `requestKindOptions` is classified as `RequestKind.Background` by `chatMLFetcher`.
+ * Header/telemetry value alignment:
+ * - `Subagent`     → `conversation-subagent`
+ * - `Background`   → `conversation-background` (default for unmarked utility/helper calls)
+ * - `Summarization`→ `conversation-agent` (compaction inside an agent turn)
+ * - `Nes`          → `conversation-other` (Next Edit Suggestion / xtab)
+ * - `MainAgent`    → resolved from `ChatLocation`: `conversation-panel` / `conversation-inline`
+ *                    / `conversation-edits` / `conversation-agent` / `conversation-other`.
+ *                    Use this to opt a primary user-initiated turn out of the background default
+ *                    so the location-derived value is sent on the wire.
  */
 export const RequestKind = {
-	Background: 'background',
-	Subagent: 'subagent',
-	Summarization: 'summarization',
 	MainAgent: 'mainagent',
+	Subagent: 'subagent',
+	Background: 'background',
+	Summarization: 'summarization',
 	Nes: 'nes',
 } as const;
 export type RequestKind = typeof RequestKind[keyof typeof RequestKind];
 
 export interface IRequestKindOptions {
 	readonly kind: RequestKind;
+}
+
+/**
+ * Resolves the `X-Interaction-Type` value (and matching `requestKind` telemetry value)
+ * from a `RequestKind` plus the location-derived intent. `MainAgent` falls through to
+ * `intent` so panel/inline/edits/agent/other surfaces are reported as the server expects.
+ */
+export function resolveInteractionType(kind: RequestKind | undefined, intent: string): string {
+	switch (kind) {
+		case RequestKind.Subagent: return 'conversation-subagent';
+		case RequestKind.Background: return 'conversation-background';
+		case RequestKind.Summarization: return 'conversation-agent';
+		case RequestKind.Nes: return 'conversation-other';
+		case RequestKind.MainAgent: return intent;
+		default: return intent;
+	}
 }
 
 function networkRequest(
@@ -425,12 +441,7 @@ function networkRequest(
 		name: '',
 		version: '',
 	} satisfies IEndpoint : endpointOrUrl;
-	const agentInteractionType = options.requestKindOptions?.kind === RequestKind.Subagent ?
-		'conversation-subagent' :
-		options.requestKindOptions?.kind === RequestKind.Background ?
-			'conversation-background' :
-			intent === 'conversation-agent' ? intent :
-				intent;
+	const agentInteractionType = resolveInteractionType(options.requestKindOptions?.kind, intent);
 
 	const headers: ReqHeaders = {
 		Authorization: `Bearer ${secretKey}`,

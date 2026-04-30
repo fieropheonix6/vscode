@@ -11,7 +11,7 @@ import { ChatFetchResponseType, ChatLocation } from '../../../../platform/chat/c
 import { IRunCommandExecutionService } from '../../../../platform/commands/common/runCommandExecutionService';
 import { IExtensionsService } from '../../../../platform/extensions/common/extensionsService';
 import { IPackageJson } from '../../../../platform/extensions/common/packageJson';
-import { IChatEndpoint } from '../../../../platform/networking/common/networking';
+import { IChatEndpoint, RequestKind } from '../../../../platform/networking/common/networking';
 import { ISetupTestExtension, testExtensionsForLanguage } from '../../../../platform/testing/common/setupTestExtensions';
 import { IWorkspaceMutationManager } from '../../../../platform/testing/common/workspaceMutationManager';
 import { SetupConfirmationResult } from '../../../../platform/testing/node/setupTestDetector';
@@ -131,16 +131,16 @@ export class SetupTestsInvocation implements IIntentInvocation {
 		const prompt = await invocation.buildPrompt(this.buildPromptContext, undefined, token);
 		const inputStream = new FetchStreamSource();
 		const responseProcessing = invocation.processResponse(context, inputStream.stream, outputStream, token);
-		await this.endpoint.makeChatRequest(
-			'testSetupAutomaticFrameworkID',
-			prompt.messages,
-			(text, _, delta) => {
+		await this.endpoint.makeChatRequest2({
+			debugName: 'testSetupAutomaticFrameworkID',
+			messages: prompt.messages,
+			finishedCb: (text, _, delta) => {
 				inputStream.update(text, delta);
 				return Promise.resolve(undefined);
 			},
-			token,
-			this.location,
-		);
+			location: this.location,
+			requestKindOptions: { kind: RequestKind.MainAgent },
+		}, token);
 
 		inputStream.resolve();
 		await responseProcessing;
@@ -208,13 +208,13 @@ export class SetupTestsInvocation implements IIntentInvocation {
 		const deriveResponsePrompt = await PromptRenderer.create(this.instantiationService, this.endpoint, TestFrameworkFromResponsePrompt, {
 			query: outputText,
 		}).render();
-		const fetchResult = await this.endpoint.makeChatRequest(
-			'setupTestDeriveName',
-			deriveResponsePrompt.messages,
-			undefined,
-			token,
-			ChatLocation.Panel
-		);
+		const fetchResult = await this.endpoint.makeChatRequest2({
+			debugName: 'setupTestDeriveName',
+			messages: deriveResponsePrompt.messages,
+			finishedCb: undefined,
+			location: ChatLocation.Panel,
+			requestKindOptions: { kind: RequestKind.MainAgent },
+		}, token);
 
 
 		if (fetchResult.type !== ChatFetchResponseType.Success) {

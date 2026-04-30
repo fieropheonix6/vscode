@@ -21,7 +21,7 @@ import { getResponsesApiCompactionThresholdFromBody, OpenAIResponsesProcessor, r
 import { collectSingleLineErrorMessage, ILogService } from '../../../platform/log/common/logService';
 import { FinishedCallback, getRequestId, IResponseDelta, OptionalChatRequestParams, RequestId } from '../../../platform/networking/common/fetch';
 import { FetcherId, IFetcherService, Response } from '../../../platform/networking/common/fetcherService';
-import { IChatEndpoint, IEndpointBody, IRequestKindOptions, postRequest, RequestKind, stringifyUrlOrRequestMetadata } from '../../../platform/networking/common/networking';
+import { IChatEndpoint, IEndpointBody, IRequestKindOptions, postRequest, RequestKind, resolveInteractionType, stringifyUrlOrRequestMetadata } from '../../../platform/networking/common/networking';
 import { CAPIChatMessage, ChatCompletion, FilterReason, FinishedCompletionReason, rawMessageToCAPI } from '../../../platform/networking/common/openai';
 import { sendEngineMessagesTelemetry } from '../../../platform/networking/node/chatStream';
 import { CAPIWebSocketErrorEvent, IChatWebSocketManager, isCAPIWebSocketError } from '../../../platform/networking/node/chatWebSocketManager';
@@ -144,6 +144,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 		if (!requestKindOptions) {
 			requestKindOptions = { kind: RequestKind.Background };
 		}
+		const interactionType = resolveInteractionType(requestKindOptions?.kind, locationToIntent(location));
 		if (useWebSocket && this._consecutiveWebSocketRetryFallbacks >= ChatMLFetcherImpl._maxConsecutiveWebSocketFallbacks) {
 			this._logService.debug(`[ChatWebSocketManager] Disabling WebSocket for request due to ${this._consecutiveWebSocketRetryFallbacks} consecutive WebSocket failures with successful HTTP fallback.`);
 			useWebSocket = false;
@@ -325,7 +326,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 			pendingLoggedChatRequest?.markTimeToFirstToken(timeToFirstToken);
 			switch (response.type) {
 				case FetchResponseKind.Success: {
-					const result = await this.processSuccessfulResponse(response, messages, requestBody, ourRequestId, maxResponseTokens, tokenCount, timeToFirstToken, streamRecorder, baseTelemetry, chatEndpoint, userInitiatedRequest, requestKindOptions, transport, actualFetcher, actualBytesReceived, suspendEventSeen, resumeEventSeen);
+					const result = await this.processSuccessfulResponse(response, messages, requestBody, ourRequestId, maxResponseTokens, tokenCount, timeToFirstToken, streamRecorder, baseTelemetry, chatEndpoint, userInitiatedRequest, interactionType, transport, actualFetcher, actualBytesReceived, suspendEventSeen, resumeEventSeen);
 
 					// Handle FilteredRetry case with augmented messages
 					if (result.type === ChatFetchResponseType.FilteredRetry) {
@@ -488,7 +489,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 							model: chatEndpoint.model,
 							apiType: chatEndpoint.apiType,
 							transport,
-							requestKindOptions,
+							interactionType,
 							conversationId: telemetryProperties.conversationId ?? conversationId,
 							associatedRequestId: telemetryProperties.associatedRequestId,
 							parentRequestId: telemetryProperties.parentRequestId,
@@ -553,6 +554,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 							usernameToScrub,
 							suspendEventSeen,
 							resumeEventSeen,
+							interactionType,
 						});
 						if (retryResult) {
 							return retryResult;
@@ -568,7 +570,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 						timeToFirstToken,
 						isVisionRequest: this.filterImageMessages(messages),
 						transport,
-						requestKindOptions,
+						interactionType,
 						fetcher: actualFetcher,
 						bytesReceived: actualBytesReceived,
 						issuedTime: baseTelemetry.issuedTime,
@@ -623,6 +625,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 					usernameToScrub,
 					suspendEventSeen,
 					resumeEventSeen,
+					interactionType,
 				});
 				if (retryResult) {
 					return retryResult;
@@ -638,7 +641,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 						model: chatEndpoint.model,
 						apiType: chatEndpoint.apiType,
 						transport,
-						requestKindOptions,
+						interactionType,
 						conversationId: telemetryProperties.conversationId ?? conversationId,
 						associatedRequestId: telemetryProperties.associatedRequestId,
 						parentRequestId: telemetryProperties.parentRequestId,
@@ -675,7 +678,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 					timeToFirstToken: timeToError,
 					isVisionRequest: this.filterImageMessages(messages),
 					transport,
-					requestKindOptions,
+					interactionType,
 					fetcher: actualFetcher,
 					bytesReceived: err.bytesReceived,
 					issuedTime: baseTelemetry.issuedTime,
@@ -762,6 +765,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 		usernameToScrub: string | undefined;
 		suspendEventSeen: boolean | undefined;
 		resumeEventSeen: boolean | undefined;
+		interactionType: string;
 	}): Promise<{ retryResult?: ChatResponses; connectivityTestError?: string; connectivityTestErrorGitHubRequestId?: string }> {
 		const {
 			opts,
@@ -783,6 +787,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 			usernameToScrub,
 			suspendEventSeen,
 			resumeEventSeen,
+			interactionType,
 		} = params;
 
 		// net::ERR_NETWORK_CHANGED: https://github.com/microsoft/vscode/issues/260297
@@ -816,7 +821,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 				timeToFirstToken: timeToError,
 				isVisionRequest: this.filterImageMessages(opts.messages),
 				transport,
-				requestKindOptions: opts.requestKindOptions,
+				interactionType,
 				fetcher: actualFetcher,
 				bytesReceived,
 				issuedTime: baseTelemetry.issuedTime,
@@ -1093,11 +1098,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 		modeChanged: boolean | undefined,
 	): Promise<{ result: ChatResults | ChatRequestFailed | ChatRequestCanceled }> {
 		const intent = locationToIntent(location);
-		const agentInteractionType = requestKindOptions?.kind === RequestKind.Subagent ?
-			'conversation-subagent' :
-			requestKindOptions?.kind === RequestKind.Background ?
-				'conversation-background' :
-				intent === 'conversation-agent' ? intent : undefined;
+		const agentInteractionType = resolveInteractionType(requestKindOptions?.kind, intent);
 		const additionalHeaders: Record<string, string> = {
 			'Authorization': `Bearer ${secretKey}`,
 			'X-Request-Id': ourRequestId,
@@ -1106,10 +1107,8 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 			'X-Interaction-Id': this._interactionService.interactionId,
 			...(chatEndpointInfo.getExtraHeaders ? chatEndpointInfo.getExtraHeaders(location) : {}),
 		};
-		if (agentInteractionType) {
-			additionalHeaders['X-Interaction-Type'] = agentInteractionType;
-			additionalHeaders['X-Agent-Task-Id'] = ourRequestId;
-		}
+		additionalHeaders['X-Interaction-Type'] = agentInteractionType;
+		additionalHeaders['X-Agent-Task-Id'] = ourRequestId;
 		if (request.messages?.some((m: CAPIChatMessage) => Array.isArray(m.content) ? m.content.some(c => 'image_url' in c) : false) && chatEndpointInfo.supportsVision) {
 			additionalHeaders['Copilot-Vision-Request'] = 'true';
 		}
@@ -1756,7 +1755,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 		baseTelemetry: TelemetryData,
 		chatEndpointInfo: IChatEndpoint,
 		userInitiatedRequest: boolean | undefined,
-		requestKindOptions: IRequestKindOptions | undefined,
+		interactionType: string,
 		transport: string,
 		fetcher: FetcherId | undefined,
 		bytesReceived: number | undefined,
@@ -1773,7 +1772,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 					chatCompletion,
 					baseTelemetry,
 					userInitiatedRequest,
-					requestKindOptions,
+					interactionType,
 					chatEndpointInfo,
 					requestBody,
 					maxResponseTokens,
