@@ -379,24 +379,21 @@ export interface INetworkRequestOptions {
 
 /**
  * Classifies a chat request for telemetry (`requestKind` on response events) and the
- * `X-Interaction-Type` header sent to CAPI.
+ * `X-Interaction-Type` header sent to CAPI. Mirrors the server's documented vocabulary.
  *
  * Header/telemetry value alignment:
- * - `Subagent`     → `conversation-subagent`
- * - `Background`   → `conversation-background` (default for unmarked utility/helper calls)
- * - `Summarization`→ `conversation-agent` (compaction inside an agent turn)
- * - `Nes`          → `conversation-other` (Next Edit Suggestion / xtab)
- * - `MainAgent`    → resolved from `ChatLocation`: `conversation-panel` / `conversation-inline`
- *                    / `conversation-edits` / `conversation-agent` / `conversation-other`.
- *                    Use this to opt a primary user-initiated turn out of the background default
- *                    so the location-derived value is sent on the wire.
+ * - `Subagent`   → `conversation-subagent`
+ * - `Background` → `conversation-background` (default for unmarked utility/helper calls)
+ * - `MainAgent`  → resolved from `ChatLocation`: `conversation-panel` / `conversation-inline`
+ *                  / `conversation-edits` / `conversation-agent` / `conversation-other` /
+ *                  `conversation-notebook` / `conversation-terminal`. Use this to opt a
+ *                  primary user-initiated turn out of the background default so the
+ *                  location-derived value is sent on the wire.
  */
 export const RequestKind = {
 	MainAgent: 'mainagent',
 	Subagent: 'subagent',
 	Background: 'background',
-	Summarization: 'summarization',
-	Nes: 'nes',
 } as const;
 export type RequestKind = typeof RequestKind[keyof typeof RequestKind];
 
@@ -413,8 +410,6 @@ export function resolveInteractionType(kind: RequestKind | undefined, intent: st
 	switch (kind) {
 		case RequestKind.Subagent: return 'conversation-subagent';
 		case RequestKind.Background: return 'conversation-background';
-		case RequestKind.Summarization: return 'conversation-agent';
-		case RequestKind.Nes: return 'conversation-other';
 		case RequestKind.MainAgent: return intent;
 		default: return intent;
 	}

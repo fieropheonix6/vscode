@@ -195,7 +195,7 @@ export class XtabNextCursorPredictor {
 				finishedCb: undefined,
 				location: ChatLocation.Other,
 				requestOptions,
-				requestKindOptions: { kind: RequestKind.Nes },
+				requestKindOptions: { kind: RequestKind.MainAgent },
 			},
 			cancellationToken,
 		);

@@ -783,7 +783,7 @@ export class XtabProvider implements IStatelessNextEditProvider {
 			{
 				debugName: XtabProvider.ID,
 				messages,
-				requestKindOptions: { kind: RequestKind.Nes },
+				requestKindOptions: { kind: RequestKind.MainAgent },
 				finishedCb: async (text, _, delta) => {
 					if (!firstTokenReceived.isSettled) {
 						firstTokenReceived.complete();
