@@ -224,6 +224,7 @@ export interface IProductConfiguration {
 	readonly darwinUniversalAssetId?: string;
 	readonly darwinBundleIdentifier?: string;
 	readonly darwinSiblingBundleIdentifier?: string;
+	readonly darwinSharedKeychainServiceName?: string;
 	readonly profileTemplatesUrl?: string;
 
 	readonly commonlyUsedSettings?: string[];
@@ -427,7 +428,6 @@ export interface IDefaultChatAgent {
 
 	readonly walkthroughCommand: string;
 	readonly completionsMenuCommand: string;
-	readonly completionsRefreshTokenCommand: string;
 	readonly chatRefreshTokenCommand: string;
 	readonly generateCommitMessageCommand: string;
 	readonly resolveMergeConflictsCommand: string;

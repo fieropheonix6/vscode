@@ -38,6 +38,8 @@ export interface ISearchSubagentToolCallingLoopOptions extends IToolCallingLoopO
 	subAgentInvocationId?: string;
 	/** The tool_call_id from the parent agent's LLM response that triggered this subagent invocation. */
 	parentToolCallId?: string;
+	/** The headerRequestId from the parent agent's fetch response that triggered this subagent invocation. */
+	parentHeaderRequestId?: string;
 	/** Thoroughness level for the search, passed through to the prompt when thoroughnessEnabled config is on. */
 	thoroughness?: 'normal' | 'deep';
 }
@@ -165,6 +167,7 @@ export class SearchSubagentToolCallingLoop extends ToolCallingLoop<ISearchSubage
 				subType: 'subagent/search',
 				conversationId: this.options.conversation.sessionId,
 				parentToolCallId: this.options.parentToolCallId,
+				parentHeaderRequestId: this.options.parentHeaderRequestId,
 			},
 			requestKindOptions: { kind: RequestKind.Subagent }
 		}, token);

@@ -30,7 +30,7 @@ export interface IBrowserViewMainService extends IBrowserViewService {
 	tryGetBrowserView(id: string): BrowserView | undefined;
 
 	/** Create a new target and return it. */
-	createTarget(url: string, mainWindowId: number, browserContextId?: string): Promise<BrowserView>;
+	createTarget(url: string, owner: IBrowserViewOwner, browserContextId?: string): Promise<BrowserView>;
 }
 
 export class BrowserViewMainService extends Disposable implements IBrowserViewMainService {
@@ -97,11 +97,11 @@ export class BrowserViewMainService extends Disposable implements IBrowserViewMa
 		return this.browserViews.get(id);
 	}
 
-	async createTarget(url: string, mainWindowId: number, browserContextId?: string): Promise<BrowserView> {
+	async createTarget(url: string, owner: IBrowserViewOwner, browserContextId?: string): Promise<BrowserView> {
 		const browserSession = browserContextId ? BrowserSession.get(browserContextId) : undefined;
 
 		return this.openNew(url, {
-			owner: { mainWindowId },
+			owner,
 			session: browserSession,
 			openOptions: { preserveFocus: true },
 			source: 'cdpCreated'
@@ -361,7 +361,7 @@ export class BrowserViewMainService extends Disposable implements IBrowserViewMa
 		}: {
 			owner: IBrowserViewOwner;
 			session: BrowserSession | undefined;
-			openOptions: IBrowserViewOpenOptions;
+			openOptions: IBrowserViewOpenOptions | undefined;
 			source: IntegratedBrowserOpenSource;
 		}
 	): Promise<BrowserView> {

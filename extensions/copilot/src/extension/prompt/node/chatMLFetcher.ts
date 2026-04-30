@@ -27,7 +27,7 @@ import { sendEngineMessagesTelemetry } from '../../../platform/networking/node/c
 import { CAPIWebSocketErrorEvent, IChatWebSocketManager, isCAPIWebSocketError } from '../../../platform/networking/node/chatWebSocketManager';
 import { sendCommunicationErrorTelemetry } from '../../../platform/networking/node/stream';
 import { ChatFailKind, ChatRequestCanceled, ChatRequestFailed, ChatResults, FetchResponseKind } from '../../../platform/openai/node/fetch';
-import { CopilotChatAttr, emitInferenceDetailsEvent, GenAiAttr, GenAiMetrics, GenAiOperationName, GenAiProviderName, normalizeProviderMessages, StdAttr, toSystemInstructions, truncateForOTel } from '../../../platform/otel/common/index';
+import { CopilotChatAttr, emitInferenceDetailsEvent, GenAiAttr, GenAiMetrics, GenAiOperationName, GenAiProviderName, normalizeProviderMessages, StdAttr, toSystemInstructions, toToolDefinitions, truncateForOTel } from '../../../platform/otel/common/index';
 import { IOTelService, ISpanHandle, SpanKind, SpanStatusCode } from '../../../platform/otel/common/otelService';
 import { IRequestLogger } from '../../../platform/requestLogger/common/requestLogger';
 import { getCurrentCapturingToken } from '../../../platform/requestLogger/node/requestLogger';
@@ -224,6 +224,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 				const countTokens = () => tokenCountPromise ??= chatEndpoint.acquireTokenizer().countMessagesTokens(messages);
 				const copilotToken = await this._authenticationService.getCopilotToken();
 				usernameToScrub = copilotToken.username;
+
 				const fetchResult = await this._fetchAndStreamChat(
 					chatEndpoint,
 					requestBody,
@@ -245,6 +246,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 					canRetryOnce,
 					requestKindOptions,
 					opts.summarizedAtRoundId,
+					opts.modeChanged,
 				);
 				response = fetchResult.result;
 				actualFetcher = fetchResult.fetcher;
@@ -301,6 +303,13 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 					if (capiMessages) {
 						// Normalize provider-specific content (Anthropic tool_use/tool_result, OpenAI tool messages) to OTel schema
 						otelInferenceSpan.setAttribute(GenAiAttr.INPUT_MESSAGES, truncateForOTel(JSON.stringify(normalizeProviderMessages(capiMessages))));
+					}
+					// Tool definitions: emit on every chat span so trace viewers can render the
+					// tool catalog per LLM call (issue #299934). Includes `parameters` per
+					// OTel GenAI semantic conventions (issue #300318).
+					const toolDefs = toToolDefinitions(requestBody.tools);
+					if (toolDefs) {
+						otelInferenceSpan.setAttribute(GenAiAttr.TOOL_DEFINITIONS, truncateForOTel(JSON.stringify(toolDefs)));
 					}
 				}
 				tokenCount = await countTokens();
@@ -396,6 +405,9 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 							[GenAiAttr.RESPONSE_FINISH_REASONS]: ['stop'],
 							...(result.usage.prompt_tokens_details?.cached_tokens
 								? { [GenAiAttr.USAGE_CACHE_READ_INPUT_TOKENS]: result.usage.prompt_tokens_details.cached_tokens }
+								: {}),
+							...(result.usage.prompt_tokens_details?.cache_creation_input_tokens
+								? { [GenAiAttr.USAGE_CACHE_CREATION_INPUT_TOKENS]: result.usage.prompt_tokens_details.cache_creation_input_tokens }
 								: {}),
 							[CopilotChatAttr.TIME_TO_FIRST_TOKEN]: timeToFirstToken,
 							...(result.serverRequestId ? { [CopilotChatAttr.SERVER_REQUEST_ID]: result.serverRequestId } : {}),
@@ -866,6 +878,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 		canRetryOnce?: boolean,
 		requestKindOptions?: IRequestKindOptions,
 		summarizedAtRoundId?: string,
+		modeChanged?: boolean,
 	): Promise<{ result: ChatResults | ChatRequestFailed | ChatRequestCanceled; fetcher?: FetcherId; bytesReceived?: number; statusCode?: number; suspendEventSeen?: boolean; resumeEventSeen?: boolean; otelSpan?: ISpanHandle }> {
 		const isPowerSaveBlockerEnabled = this._configurationService.getExperimentBasedConfig(ConfigKey.TeamInternal.ChatRequestPowerSaveBlocker, this._experimentationService);
 		const blockerHandle = isPowerSaveBlockerEnabled && location !== ChatLocation.Other ? this._powerService.acquirePowerSaveBlocker() : undefined;
@@ -905,6 +918,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 				canRetryOnce,
 				requestKindOptions,
 				summarizedAtRoundId,
+				modeChanged,
 			);
 			return { ...fetchResult, suspendEventSeen: suspendEventSeen || undefined, resumeEventSeen: resumeEventSeen || undefined };
 		} catch (err) {
@@ -943,6 +957,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 		canRetryOnce?: boolean,
 		requestKindOptions?: IRequestKindOptions,
 		summarizedAtRoundId?: string,
+		modeChanged?: boolean,
 	): Promise<{ result: ChatResults | ChatRequestFailed | ChatRequestCanceled; fetcher?: FetcherId; bytesReceived?: number; statusCode?: number; otelSpan?: ISpanHandle }> {
 
 		if (cancellationToken.isCancellationRequested) {
@@ -1016,6 +1031,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 					telemetryProperties,
 					requestKindOptions,
 					summarizedAtRoundId,
+					modeChanged,
 				);
 				return { ...wsResult, otelSpan };
 			}
@@ -1074,6 +1090,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 		telemetryProperties: TelemetryProperties | undefined,
 		requestKindOptions: IRequestKindOptions | undefined,
 		summarizedAtRoundId: string | undefined,
+		modeChanged: boolean | undefined,
 	): Promise<{ result: ChatResults | ChatRequestFailed | ChatRequestCanceled }> {
 		const intent = locationToIntent(location);
 		const agentInteractionType = requestKindOptions?.kind === RequestKind.Subagent ?
@@ -1134,7 +1151,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 		this._telemetryService.sendGHTelemetryEvent('request.sent', telemetryData.properties, telemetryData.measurements);
 
 		const requestStart = Date.now();
-		const handle = connection.sendRequest(request, { userInitiated: !!userInitiatedRequest, turnId, requestId: ourRequestId, model: chatEndpointInfo.model, countTokens, tokenCountMax: chatEndpointInfo.maxOutputTokens, modelMaxPromptTokens: chatEndpointInfo.modelMaxPromptTokens, summarizedAtRoundId }, cancellationToken);
+		const handle = connection.sendRequest(request, { userInitiated: !!userInitiatedRequest, turnId, requestId: ourRequestId, model: chatEndpointInfo.model, countTokens, tokenCountMax: chatEndpointInfo.maxOutputTokens, modelMaxPromptTokens: chatEndpointInfo.modelMaxPromptTokens, summarizedAtRoundId, modeChanged }, cancellationToken);
 
 		const extendedBaseTelemetryData = baseTelemetryData.extendedBy({ modelCallId });
 		const processor = this._instantiationService.createInstance(OpenAIResponsesProcessor, extendedBaseTelemetryData, this._telemetryService, modelRequestId.headerRequestId, modelRequestId.gitHubRequestId, modelRequestId.serverExperiments, getResponsesApiCompactionThresholdFromBody(request));

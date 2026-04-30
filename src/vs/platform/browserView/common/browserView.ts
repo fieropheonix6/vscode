@@ -13,6 +13,7 @@ export enum BrowserViewCommandId {
 	Open = `${commandPrefix}.open`,
 	NewTab = `${commandPrefix}.newTab`,
 	QuickOpen = `${commandPrefix}.quickOpen`,
+	OpenOrList = `${commandPrefix}.openOrList`,
 	CloseAll = `${commandPrefix}.closeAll`,
 	CloseAllInGroup = `${commandPrefix}.closeAllInGroup`,
 
@@ -114,7 +115,9 @@ export interface IBrowserViewOpenOptions {
 
 export interface IBrowserViewCreatedEvent {
 	readonly info: IBrowserViewInfo;
-	readonly openOptions: IBrowserViewOpenOptions;
+
+	// May be omitted to create the view without opening an editor.
+	readonly openOptions?: IBrowserViewOpenOptions;
 }
 
 export interface IBrowserViewCreateOptions {
