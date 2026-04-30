@@ -6,7 +6,7 @@
 import { ChatFetchError } from '../../../platform/chat/common/commonTypes';
 import { isAutoModel } from '../../../platform/endpoint/node/autoChatEndpoint';
 import { FetcherId } from '../../../platform/networking/common/fetcherService';
-import { IChatEndpoint, IChatRequestTelemetryProperties, IEndpointBody, IRequestKindOptions } from '../../../platform/networking/common/networking';
+import { IChatEndpoint, IChatRequestTelemetryProperties, IEndpointBody, IRequestKindOptions, RequestKind } from '../../../platform/networking/common/networking';
 import { ChatCompletion } from '../../../platform/networking/common/openai';
 import { ITelemetryService } from '../../../platform/telemetry/common/telemetry';
 import { TelemetryData } from '../../../platform/telemetry/common/telemetryData';
@@ -160,7 +160,7 @@ export class ChatMLFetcherTelemetrySender {
 			filterReason: chatCompletion.filterReason,
 			source: baseTelemetry?.properties.messageSource ?? 'unknown',
 			initiatorType: userInitiatedRequest ? 'user' : 'agent',
-			requestKind: requestKindOptions?.kind ?? 'mainagent',
+			requestKind: requestKindOptions?.kind ?? RequestKind.MainAgent,
 			conversationId: baseTelemetry?.properties.conversationId,
 			model: chatEndpointInfo?.model,
 			modelInvoked: chatCompletion.model,
@@ -277,7 +277,7 @@ export class ChatMLFetcherTelemetrySender {
 			source,
 			requestId,
 			model,
-			requestKind: requestKindOptions?.kind ?? 'mainagent',
+			requestKind: requestKindOptions?.kind ?? RequestKind.MainAgent,
 			conversationId,
 			associatedRequestId,
 			parentRequestId,
@@ -371,7 +371,7 @@ export class ChatMLFetcherTelemetrySender {
 			type: processed.type,
 			reason: processed.reasonDetail || processed.reason,
 			source: telemetryProperties?.messageSource ?? 'unknown',
-			requestKind: requestKindOptions?.kind ?? 'mainagent',
+			requestKind: requestKindOptions?.kind ?? RequestKind.MainAgent,
 			conversationId: telemetryProperties?.conversationId,
 			requestId: processed.requestId,
 			gitHubRequestId: processed.serverRequestId,

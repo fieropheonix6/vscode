@@ -16,7 +16,7 @@ import { ConfigKey, IConfigurationService } from '../../../../platform/configura
 import { isAnthropicFamily, isGeminiFamily } from '../../../../platform/endpoint/common/chatModelCapabilities';
 import { ILogService } from '../../../../platform/log/common/logService';
 import { CUSTOM_TOOL_SEARCH_NAME } from '../../../../platform/networking/common/anthropic';
-import { IChatEndpoint } from '../../../../platform/networking/common/networking';
+import { IChatEndpoint, RequestKind } from '../../../../platform/networking/common/networking';
 import { APIUsage } from '../../../../platform/networking/common/openai';
 import { IPromptPathRepresentationService } from '../../../../platform/prompts/common/promptPathRepresentationService';
 import { ITelemetryService } from '../../../../platform/telemetry/common/telemetry';
@@ -750,7 +750,7 @@ class ConversationHistorySummarizer {
 				},
 				telemetryProperties: associatedRequestId ? { associatedRequestId } : undefined,
 				enableRetryOnFilter: true,
-				requestKindOptions: { kind: 'summarization' }
+				requestKindOptions: { kind: RequestKind.Summarization }
 			}, this.token ?? CancellationToken.None);
 		} catch (e) {
 			this.logInfo(`Error from summarization request. ${e.message}`, mode);

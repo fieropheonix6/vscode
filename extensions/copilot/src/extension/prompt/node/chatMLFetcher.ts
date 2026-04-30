@@ -21,7 +21,7 @@ import { getResponsesApiCompactionThresholdFromBody, OpenAIResponsesProcessor, r
 import { collectSingleLineErrorMessage, ILogService } from '../../../platform/log/common/logService';
 import { FinishedCallback, getRequestId, IResponseDelta, OptionalChatRequestParams, RequestId } from '../../../platform/networking/common/fetch';
 import { FetcherId, IFetcherService, Response } from '../../../platform/networking/common/fetcherService';
-import { IChatEndpoint, IEndpointBody, IRequestKindOptions, postRequest, stringifyUrlOrRequestMetadata } from '../../../platform/networking/common/networking';
+import { IChatEndpoint, IEndpointBody, IRequestKindOptions, postRequest, RequestKind, stringifyUrlOrRequestMetadata } from '../../../platform/networking/common/networking';
 import { CAPIChatMessage, ChatCompletion, FilterReason, FinishedCompletionReason, rawMessageToCAPI } from '../../../platform/networking/common/openai';
 import { sendEngineMessagesTelemetry } from '../../../platform/networking/node/chatStream';
 import { CAPIWebSocketErrorEvent, IChatWebSocketManager, isCAPIWebSocketError } from '../../../platform/networking/node/chatWebSocketManager';
@@ -142,7 +142,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 		// explicitly opt in to 'mainagent'. This way new utility callers get classified
 		// correctly without each one having to remember to opt in.
 		if (!requestKindOptions) {
-			requestKindOptions = { kind: 'background' };
+			requestKindOptions = { kind: RequestKind.Background };
 		}
 		if (useWebSocket && this._consecutiveWebSocketRetryFallbacks >= ChatMLFetcherImpl._maxConsecutiveWebSocketFallbacks) {
 			this._logService.debug(`[ChatWebSocketManager] Disabling WebSocket for request due to ${this._consecutiveWebSocketRetryFallbacks} consecutive WebSocket failures with successful HTTP fallback.`);
@@ -1076,9 +1076,9 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 		summarizedAtRoundId: string | undefined,
 	): Promise<{ result: ChatResults | ChatRequestFailed | ChatRequestCanceled }> {
 		const intent = locationToIntent(location);
-		const agentInteractionType = requestKindOptions?.kind === 'subagent' ?
+		const agentInteractionType = requestKindOptions?.kind === RequestKind.Subagent ?
 			'conversation-subagent' :
-			requestKindOptions?.kind === 'background' ?
+			requestKindOptions?.kind === RequestKind.Background ?
 				'conversation-background' :
 				intent === 'conversation-agent' ? intent : undefined;
 		const additionalHeaders: Record<string, string> = {

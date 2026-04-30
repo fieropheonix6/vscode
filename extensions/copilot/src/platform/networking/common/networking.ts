@@ -355,38 +355,29 @@ export interface INetworkRequestOptions {
 }
 
 /**
- * A background request is one that is not associated with a user request.
+ * Classifies a chat request for telemetry (`requestKind` on response events) and the
+ * `X-Interaction-Type` header sent to CAPI.
+ *
+ * - `Background`: out-of-band utility request not directly tied to a user turn (default).
+ * - `Subagent`: a request made by a subagent loop (search/execution); also indicated to
+ *   the server with `X-Interaction-Type: conversation-subagent`.
+ * - `Summarization`: conversation-history compaction in the critical path of a user turn.
+ * - `MainAgent`: a primary user-initiated chat turn (panel chat, inline chat).
+ *
+ * Callers opt in to a non-default kind via `RequestKind.<Member>`. Anything that doesn't
+ * set `requestKindOptions` is classified as `RequestKind.Background` by `chatMLFetcher`.
  */
-export interface IBackgroundRequestOptions {
-	readonly kind: 'background';
-}
+export const RequestKind = {
+	Background: 'background',
+	Subagent: 'subagent',
+	Summarization: 'summarization',
+	MainAgent: 'mainagent',
+} as const;
+export type RequestKind = typeof RequestKind[keyof typeof RequestKind];
 
-/**
- * A subagent request is a request made by a subagent, indicated with a subAgentInvocationId included in the request from VS Code.
- */
-export interface ISubagentRequestOptions {
-	readonly kind: 'subagent';
+export interface IRequestKindOptions {
+	readonly kind: RequestKind;
 }
-
-/**
- * A summarization request — used for compacting conversation history (both
- * inline mid-turn and post-turn). Distinct from 'background' because it's
- * directly in the critical path of a user turn.
- */
-export interface ISummarizationRequestOptions {
-	readonly kind: 'summarization';
-}
-
-/**
- * A normal request is a primary user-initiated chat turn (e.g. driven by the
- * default intent request handler or inline chat). Callers explicitly opt in to
- * 'mainagent' so the chat ML fetcher can default unmarked requests to 'background'.
- */
-export interface IMainAgentRequestOptions {
-	readonly kind: 'mainagent';
-}
-
-export type IRequestKindOptions = IBackgroundRequestOptions | ISubagentRequestOptions | ISummarizationRequestOptions | IMainAgentRequestOptions;
 
 function networkRequest(
 	accessor: ServicesAccessor,
@@ -409,9 +400,9 @@ function networkRequest(
 		name: '',
 		version: '',
 	} satisfies IEndpoint : endpointOrUrl;
-	const agentInteractionType = options.requestKindOptions?.kind === 'subagent' ?
+	const agentInteractionType = options.requestKindOptions?.kind === RequestKind.Subagent ?
 		'conversation-subagent' :
-		options.requestKindOptions?.kind === 'background' ?
+		options.requestKindOptions?.kind === RequestKind.Background ?
 			'conversation-background' :
 			intent === 'conversation-agent' ? intent :
 				intent;

@@ -19,7 +19,7 @@ import { IEnvService } from '../../../platform/env/common/envService';
 import { ILogService } from '../../../platform/log/common/logService';
 import { IEditLogService } from '../../../platform/multiFileEdit/common/editLogService';
 import { CUSTOM_TOOL_SEARCH_NAME, isAnthropicContextEditingEnabled } from '../../../platform/networking/common/anthropic';
-import { IChatEndpoint } from '../../../platform/networking/common/networking';
+import { IChatEndpoint, RequestKind } from '../../../platform/networking/common/networking';
 import { modelsWithoutResponsesContextManagement } from '../../../platform/networking/common/openai';
 import { INotebookService } from '../../../platform/notebook/common/notebookService';
 import { GenAiMetrics } from '../../../platform/otel/common/genAiMetrics';
@@ -864,7 +864,7 @@ export class AgentIntentInvocation extends EditCodeIntentInvocation implements I
 						modelCapabilities,
 						telemetryProperties: associatedRequestId ? { associatedRequestId } : undefined,
 						enableRetryOnFilter: true,
-						requestKindOptions: { kind: 'summarization' },
+						requestKindOptions: { kind: RequestKind.Summarization },
 					}, bgToken);
 					if (response.type !== ChatFetchResponseType.Success) {
 						throw new Error(`Background inline summarization request failed: ${response.type}`);

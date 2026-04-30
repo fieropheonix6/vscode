@@ -17,7 +17,7 @@ import { IOctoKitService } from '../../../platform/github/common/githubService';
 import { IIgnoreService } from '../../../platform/ignore/common/ignoreService';
 import { ILogService } from '../../../platform/log/common/logService';
 import { Prediction } from '../../../platform/networking/common/fetch';
-import { IChatEndpoint, IMakeChatRequestOptions } from '../../../platform/networking/common/networking';
+import { IChatEndpoint, IMakeChatRequestOptions, RequestKind } from '../../../platform/networking/common/networking';
 import { IParserService } from '../../../platform/parser/node/parserService';
 import { getWasmLanguage } from '../../../platform/parser/node/treeSitterLanguages';
 import { IExperimentationService } from '../../../platform/telemetry/common/nullExperimentationService';
@@ -468,7 +468,7 @@ class InlineChatEditToolsStrategy implements IInlineChatEditStrategy {
 				conversationId: telemetry.sessionId,
 				messageSource: this._intent.id
 			},
-			requestKindOptions: { kind: 'mainagent' },
+			requestKindOptions: { kind: RequestKind.MainAgent },
 			finishedCb: async (_text, _index, delta) => {
 
 				telemetry.markReceivedToken();
@@ -668,7 +668,7 @@ class InlineChatEditHeuristicStrategy implements IInlineChatEditStrategy {
 				conversationId: telemetry.sessionId,
 				messageSource: this._intent.id
 			},
-			requestKindOptions: { kind: 'mainagent' },
+			requestKindOptions: { kind: RequestKind.MainAgent },
 			requestOptions: {
 				stream: true,
 				prediction
