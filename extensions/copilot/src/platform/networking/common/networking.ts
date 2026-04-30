@@ -386,6 +386,7 @@ export interface INetworkRequestOptions {
  *   the server with `X-Interaction-Type: conversation-subagent`.
  * - `Summarization`: conversation-history compaction in the critical path of a user turn.
  * - `MainAgent`: a primary user-initiated chat turn (panel chat, inline chat).
+ * - `Nes`: Next Edit Suggestion — speculative inline edit prediction (xtab).
  *
  * Callers opt in to a non-default kind via `RequestKind.<Member>`. Anything that doesn't
  * set `requestKindOptions` is classified as `RequestKind.Background` by `chatMLFetcher`.
@@ -395,6 +396,7 @@ export const RequestKind = {
 	Subagent: 'subagent',
 	Summarization: 'summarization',
 	MainAgent: 'mainagent',
+	Nes: 'nes',
 } as const;
 export type RequestKind = typeof RequestKind[keyof typeof RequestKind];
 

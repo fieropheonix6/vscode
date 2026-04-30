@@ -29,7 +29,7 @@ import { ILanguageDiagnosticsService } from '../../../platform/languages/common/
 import { ContextKind, SnippetContext } from '../../../platform/languageServer/common/languageContextService';
 import { ILogger } from '../../../platform/log/common/logService';
 import { OptionalChatRequestParams, Prediction } from '../../../platform/networking/common/fetch';
-import { IChatEndpoint } from '../../../platform/networking/common/networking';
+import { IChatEndpoint, RequestKind } from '../../../platform/networking/common/networking';
 import { ISimulationTestContext } from '../../../platform/simulationTestContext/common/simulationTestContext';
 import { IExperimentationService } from '../../../platform/telemetry/common/nullExperimentationService';
 import { IWorkspaceService } from '../../../platform/workspace/common/workspaceService';
@@ -783,6 +783,7 @@ export class XtabProvider implements IStatelessNextEditProvider {
 			{
 				debugName: XtabProvider.ID,
 				messages,
+				requestKindOptions: { kind: RequestKind.Nes },
 				finishedCb: async (text, _, delta) => {
 					if (!firstTokenReceived.isSettled) {
 						firstTokenReceived.complete();
