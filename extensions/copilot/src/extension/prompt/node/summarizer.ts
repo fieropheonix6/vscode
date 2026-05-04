@@ -95,9 +95,9 @@ export class ChatSummarizerProvider implements vscode.ChatSummarizer {
 			debugName: 'summarize',
 			messages: allMessages,
 			finishedCb: undefined,
-			location: ChatLocation.Agent,
+			location: ChatLocation.Panel,
 			userInitiatedRequest: false,
-			requestKindOptions: { kind: RequestKind.MainAgent },
+			requestKindOptions: { kind: RequestKind.Background },
 		}, token));
 
 		if (token.isCancellationRequested) {
