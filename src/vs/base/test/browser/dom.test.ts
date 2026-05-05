@@ -8,6 +8,7 @@ import { $, h, trackAttributes, copyAttributes, disposableWindowInterval, getWin
 import { asCssValueWithDefault } from '../../../base/browser/cssValue.js';
 import { ensureCodeWindow, isAuxiliaryWindow, mainWindow } from '../../browser/window.js';
 import { DeferredPromise, timeout } from '../../common/async.js';
+import { errorHandler, setUnexpectedErrorHandler } from '../../common/errors.js';
 import { runWithFakedTimers } from '../common/timeTravelScheduler.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../common/utils.js';
 
@@ -609,8 +610,16 @@ suite('dom', () => {
 			const observer = new DisposableResizeObserver('test.throw', () => { throw new Error('boom'); }, mainWindow, { resizeObserverCtor: fake.ctor });
 			// Browser would not catch a throw out of the native callback; we
 			// must guard so a single bad consumer does not break delivery for
-			// every other observer in the realm.
-			assert.doesNotThrow(() => fake.fire([fakeEntry()]));
+			// every other observer in the realm. The wrapper routes the throw
+			// to onUnexpectedError, so swap the handler for the duration of
+			// this test so the test runner does not flag it as a failure.
+			const originalErrorHandler = errorHandler.getUnexpectedErrorHandler();
+			setUnexpectedErrorHandler(() => { /* swallow expected */ });
+			try {
+				assert.doesNotThrow(() => fake.fire([fakeEntry()]));
+			} finally {
+				setUnexpectedErrorHandler(originalErrorHandler);
+			}
 			observer.dispose();
 		});
 
