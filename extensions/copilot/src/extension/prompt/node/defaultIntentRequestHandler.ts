@@ -23,7 +23,6 @@ import { HAS_IGNORED_FILES_MESSAGE } from '../../../platform/ignore/common/ignor
 import { ILogService } from '../../../platform/log/common/logService';
 import { isAnthropicContextEditingEnabled } from '../../../platform/networking/common/anthropic';
 import { FilterReason } from '../../../platform/networking/common/openai';
-import { RequestKind } from '../../../platform/networking/common/networking';
 import { IOTelService } from '../../../platform/otel/common/otelService';
 import { CapturingToken } from '../../../platform/requestLogger/common/capturingToken';
 import { IRequestLogger } from '../../../platform/requestLogger/common/requestLogger';
@@ -734,9 +733,7 @@ class DefaultToolCallingLoop extends ToolCallingLoop<IDefaultToolLoopOptions> {
 				parentRequestId: this.options.request.parentRequestId,
 				iterationNumber: opts.iterationNumber.toString(),
 			},
-			requestKindOptions: this.options.request.subAgentInvocationId
-				? { kind: RequestKind.Subagent }
-				: { kind: RequestKind.MainAgent },
+			interactionTypeOverride: this.options.request.subAgentInvocationId ? 'conversation-subagent' : undefined,
 			enableRetryOnFilter: true
 		}, token);
 	}

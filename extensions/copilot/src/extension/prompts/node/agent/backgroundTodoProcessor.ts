@@ -540,7 +540,7 @@ export class BackgroundTodoProcessor {
 				tools: normalizedTools,
 			},
 			userInitiatedRequest: false,
-			requestKindOptions: { kind: 'background' },
+			interactionTypeOverride: 'conversation-background',
 			telemetryProperties: associatedRequestId ? { associatedRequestId } : undefined,
 		}, token);
 

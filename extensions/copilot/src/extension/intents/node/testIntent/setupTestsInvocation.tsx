@@ -11,7 +11,7 @@ import { ChatFetchResponseType, ChatLocation } from '../../../../platform/chat/c
 import { IRunCommandExecutionService } from '../../../../platform/commands/common/runCommandExecutionService';
 import { IExtensionsService } from '../../../../platform/extensions/common/extensionsService';
 import { IPackageJson } from '../../../../platform/extensions/common/packageJson';
-import { IChatEndpoint, RequestKind } from '../../../../platform/networking/common/networking';
+import { IChatEndpoint } from '../../../../platform/networking/common/networking';
 import { ISetupTestExtension, testExtensionsForLanguage } from '../../../../platform/testing/common/setupTestExtensions';
 import { IWorkspaceMutationManager } from '../../../../platform/testing/common/workspaceMutationManager';
 import { SetupConfirmationResult } from '../../../../platform/testing/node/setupTestDetector';
@@ -139,7 +139,6 @@ export class SetupTestsInvocation implements IIntentInvocation {
 				return Promise.resolve(undefined);
 			},
 			location: this.location,
-			requestKindOptions: { kind: RequestKind.MainAgent },
 		}, token);
 
 		inputStream.resolve();
@@ -213,7 +212,6 @@ export class SetupTestsInvocation implements IIntentInvocation {
 			messages: deriveResponsePrompt.messages,
 			finishedCb: undefined,
 			location: ChatLocation.Panel,
-			requestKindOptions: { kind: RequestKind.MainAgent },
 		}, token);
 
 

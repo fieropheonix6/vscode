@@ -15,7 +15,7 @@ import { IEndpointProvider } from '../../../platform/endpoint/common/endpointPro
 import { IOctoKitService } from '../../../platform/github/common/githubService';
 import { IIgnoreService } from '../../../platform/ignore/common/ignoreService';
 import { ILogService } from '../../../platform/log/common/logService';
-import { IChatEndpoint, IMakeChatRequestOptions, RequestKind } from '../../../platform/networking/common/networking';
+import { IChatEndpoint, IMakeChatRequestOptions } from '../../../platform/networking/common/networking';
 import { IExperimentationService } from '../../../platform/telemetry/common/nullExperimentationService';
 import { ChatResponseStreamImpl } from '../../../util/common/chatResponseStreamImpl';
 import { toErrorMessage } from '../../../util/common/errorMessage';
@@ -365,7 +365,6 @@ class InlineChatToolCalling {
 				conversationId: telemetry.sessionId,
 				messageSource: this._intent.id
 			},
-			requestKindOptions: { kind: RequestKind.MainAgent },
 			finishedCb: async (_text, _index, delta) => {
 
 				telemetry.markReceivedToken();

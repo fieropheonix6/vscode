@@ -10,7 +10,7 @@ import { ChatFetchResponseType, ChatLocation } from '../../../platform/chat/comm
 import { IConversationOptions } from '../../../platform/chat/common/conversationOptions';
 import { ILogService } from '../../../platform/log/common/logService';
 import { IResponseDelta } from '../../../platform/networking/common/fetch';
-import { IChatEndpoint, RequestKind } from '../../../platform/networking/common/networking';
+import { IChatEndpoint } from '../../../platform/networking/common/networking';
 import { IAlternativeNotebookContentEditGenerator, NotebookEditGenerationTelemtryOptions, NotebookEditGenrationSource } from '../../../platform/notebook/common/alternativeContentEditGenerator';
 import { ITelemetryService } from '../../../platform/telemetry/common/telemetry';
 import { IWorkspaceService } from '../../../platform/workspace/common/workspaceService';
@@ -193,7 +193,6 @@ export class NewNotebookResponseProcessor {
 					messages: generateMessages,
 					finishedCb,
 					location: ChatLocation.Panel,
-					requestKindOptions: { kind: RequestKind.MainAgent },
 				}, token);
 				sourceStream.resolve();
 				if (generateResponse.type !== ChatFetchResponseType.Success) {
@@ -262,7 +261,6 @@ export async function newNotebookCodeCell(instantiationService: IInstantiationSe
 		messages,
 finishedCb: undefined,
 		location: ChatLocation.Panel,
-		requestKindOptions: { kind: RequestKind.MainAgent },
 	}, token);
 	if (modelResponse.type !== ChatFetchResponseType.Success) {
 		return;
@@ -293,7 +291,6 @@ export async function improveNotebookCodeCell(instantiationService: IInstantiati
 		messages,
 finishedCb: undefined,
 		location: ChatLocation.Panel,
-		requestKindOptions: { kind: RequestKind.MainAgent },
 	}, token);
 	if (modelResponse.type !== ChatFetchResponseType.Success) {
 		return;

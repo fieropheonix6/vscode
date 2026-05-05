@@ -21,7 +21,7 @@ import { getResponsesApiCompactionThresholdFromBody, OpenAIResponsesProcessor, r
 import { collectSingleLineErrorMessage, ILogService } from '../../../platform/log/common/logService';
 import { FinishedCallback, getRequestId, IResponseDelta, OptionalChatRequestParams, RequestId } from '../../../platform/networking/common/fetch';
 import { FetcherId, IFetcherService, Response } from '../../../platform/networking/common/fetcherService';
-import { IChatEndpoint, IEndpointBody, IRequestKindOptions, postRequest, RequestKind, resolveInteractionType, stringifyUrlOrRequestMetadata } from '../../../platform/networking/common/networking';
+import { IChatEndpoint, IEndpointBody, InteractionTypeOverride, postRequest, stringifyUrlOrRequestMetadata } from '../../../platform/networking/common/networking';
 import { CAPIChatMessage, ChatCompletion, FilterReason, FinishedCompletionReason, rawMessageToCAPI } from '../../../platform/networking/common/openai';
 import { sendEngineMessagesTelemetry } from '../../../platform/networking/node/chatStream';
 import { CAPIWebSocketErrorEvent, IChatWebSocketManager, isCAPIWebSocketError } from '../../../platform/networking/node/chatWebSocketManager';
@@ -136,15 +136,8 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 	 * Note: the returned array of strings may be less than `n` (e.g., in case there were errors during streaming)
 	 */
 	public async fetchMany(opts: IFetchMLOptions, token: CancellationToken): Promise<ChatResponses> {
-		let { debugName, endpoint: chatEndpoint, finishedCb, location, messages, requestOptions, source, telemetryProperties, userInitiatedRequest, requestKindOptions, conversationId, turnId, useWebSocket, ignoreStatefulMarker } = opts;
-		// Default any unmarked request to 'background'. Primary user turns
-		// (defaultIntentRequestHandler, inlineChatIntent, copilotcli sessions, etc.)
-		// explicitly opt in to 'mainagent'. This way new utility callers get classified
-		// correctly without each one having to remember to opt in.
-		if (!requestKindOptions) {
-			requestKindOptions = { kind: RequestKind.Background };
-		}
-		const interactionType = resolveInteractionType(requestKindOptions?.kind, locationToIntent(location));
+		let { debugName, endpoint: chatEndpoint, finishedCb, location, messages, requestOptions, source, telemetryProperties, userInitiatedRequest, interactionTypeOverride, conversationId, turnId, useWebSocket, ignoreStatefulMarker } = opts;
+		const interactionType = interactionTypeOverride ?? locationToIntent(location);
 		if (useWebSocket && this._consecutiveWebSocketRetryFallbacks >= ChatMLFetcherImpl._maxConsecutiveWebSocketFallbacks) {
 			this._logService.debug(`[ChatWebSocketManager] Disabling WebSocket for request due to ${this._consecutiveWebSocketRetryFallbacks} consecutive WebSocket failures with successful HTTP fallback.`);
 			useWebSocket = false;
@@ -246,7 +239,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 					telemetryProperties,
 					opts.useFetcher,
 					canRetryOnce,
-					requestKindOptions,
+					interactionTypeOverride,
 					opts.summarizedAtRoundId,
 					opts.modeChanged,
 				);
@@ -892,7 +885,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 		telemetryProperties?: TelemetryProperties | undefined,
 		useFetcher?: FetcherId,
 		canRetryOnce?: boolean,
-		requestKindOptions?: IRequestKindOptions,
+		interactionTypeOverride?: InteractionTypeOverride,
 		summarizedAtRoundId?: string,
 		modeChanged?: boolean,
 	): Promise<{ result: ChatResults | ChatRequestFailed | ChatRequestCanceled; fetcher?: FetcherId; bytesReceived?: number; statusCode?: number; suspendEventSeen?: boolean; resumeEventSeen?: boolean; otelSpan?: ISpanHandle; modelCallId?: string }> {
@@ -932,7 +925,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 				telemetryProperties,
 				useFetcher,
 				canRetryOnce,
-				requestKindOptions,
+				interactionTypeOverride,
 				summarizedAtRoundId,
 				modeChanged,
 			);
@@ -971,7 +964,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 		telemetryProperties?: TelemetryProperties | undefined,
 		useFetcher?: FetcherId,
 		canRetryOnce?: boolean,
-		requestKindOptions?: IRequestKindOptions,
+		interactionTypeOverride?: InteractionTypeOverride,
 		summarizedAtRoundId?: string,
 		modeChanged?: boolean,
 	): Promise<{ result: ChatResults | ChatRequestFailed | ChatRequestCanceled; fetcher?: FetcherId; bytesReceived?: number; statusCode?: number; otelSpan?: ISpanHandle; modelCallId?: string }> {
@@ -1045,7 +1038,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 					countTokens,
 					userInitiatedRequest,
 					telemetryProperties,
-					requestKindOptions,
+					interactionTypeOverride,
 					summarizedAtRoundId,
 					modeChanged,
 				);
@@ -1066,7 +1059,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 				telemetryProperties,
 				useFetcher,
 				canRetryOnce,
-				requestKindOptions,
+				interactionTypeOverride,
 			);
 			return { ...httpResult, otelSpan };
 
@@ -1104,12 +1097,12 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 		countTokens: () => Promise<number>,
 		userInitiatedRequest: boolean | undefined,
 		telemetryProperties: TelemetryProperties | undefined,
-		requestKindOptions: IRequestKindOptions | undefined,
+		interactionTypeOverride: InteractionTypeOverride | undefined,
 		summarizedAtRoundId: string | undefined,
 		modeChanged: boolean | undefined,
 	): Promise<{ result: ChatResults | ChatRequestFailed | ChatRequestCanceled; modelCallId?: string }> {
 		const intent = locationToIntent(location);
-		const agentInteractionType = resolveInteractionType(requestKindOptions?.kind, intent);
+		const agentInteractionType = interactionTypeOverride ?? intent;
 		const additionalHeaders: Record<string, string> = {
 			'Authorization': `Bearer ${secretKey}`,
 			'X-Request-Id': ourRequestId,
@@ -1282,7 +1275,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 		telemetryProperties: TelemetryProperties | undefined,
 		useFetcher: FetcherId | undefined,
 		canRetryOnce: boolean | undefined,
-		requestKindOptions: IRequestKindOptions | undefined,
+		interactionTypeOverride: InteractionTypeOverride | undefined,
 	): Promise<{ result: ChatResults | ChatRequestFailed | ChatRequestCanceled; fetcher?: FetcherId; bytesReceived?: number; statusCode?: number; modelCallId?: string }> {
 		// Generate unique ID to link input and output messages
 		const modelCallId = generateUuid();
@@ -1298,7 +1291,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 			{ ...telemetryProperties, modelCallId },
 			useFetcher,
 			canRetryOnce,
-			requestKindOptions,
+			interactionTypeOverride,
 		);
 
 		if (cancellationToken.isCancellationRequested) {
@@ -1397,7 +1390,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 		telemetryProperties?: TelemetryProperties,
 		useFetcher?: FetcherId,
 		canRetryOnce?: boolean,
-		requestKindOptions?: IRequestKindOptions,
+		interactionTypeOverride?: InteractionTypeOverride,
 	): Promise<Response> {
 
 		// If request contains an image, we include this header.
@@ -1447,7 +1440,7 @@ export class ChatMLFetcherImpl extends AbstractChatMLFetcher {
 			useFetcher,
 			canRetryOnce,
 			location,
-			requestKindOptions,
+			interactionTypeOverride,
 		}).then(response => {
 			const apim = response.headers.get('apim-request-id');
 			if (apim) {

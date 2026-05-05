@@ -12,7 +12,6 @@ import { CapturingToken } from '../../../platform/requestLogger/common/capturing
 import { IRequestLogger } from '../../../platform/requestLogger/common/requestLogger';
 import { URI } from '../../../util/vs/base/common/uri';
 import { IInstantiationService } from '../../../util/vs/platform/instantiation/common/instantiation';
-import { RequestKind } from '../../../platform/networking/common/networking';
 import { ConversationHistorySummarizationPrompt } from '../../prompts/node/agent/summarizedConversationHistory';
 import { renderPromptElement } from '../../prompts/node/base/promptRenderer';
 import { ChatVariablesCollection } from '../common/chatVariablesCollection';
@@ -97,7 +96,7 @@ export class ChatSummarizerProvider implements vscode.ChatSummarizer {
 			finishedCb: undefined,
 			location: ChatLocation.Panel,
 			userInitiatedRequest: false,
-			requestKindOptions: { kind: RequestKind.Background },
+			interactionTypeOverride: 'conversation-background',
 		}, token));
 
 		if (token.isCancellationRequested) {

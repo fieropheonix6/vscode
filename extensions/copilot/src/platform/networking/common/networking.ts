@@ -211,10 +211,17 @@ export interface IMakeChatRequestOptions {
 	/** Custom metadata to be displayed in the log document */
 	customMetadata?: Record<string, string | number | boolean | undefined>;
 	/**
-	 * Options for the kind of request being made (e.g. subagent). Controls the X-Interaction-Type header.
-	 * See notes on each interface.
+	 * Override for the `X-Interaction-Type` header (and matching `requestKind`
+	 * telemetry value). When unset, the value is derived from {@link ChatLocation}
+	 * via `locationToIntent` (e.g. panel → `conversation-panel`).
+	 *
+	 * Set this for callers whose surface isn't captured by the location alone:
+	 * - `'conversation-subagent'` — search/exec subagents inside an agent turn.
+	 * - `'conversation-background'` — utility calls not tied to an active user
+	 *   turn (e.g. chat title generation, conversation summarization, branch
+	 *   name suggestion, prompt categorization).
 	 */
-	requestKindOptions?: IRequestKindOptions;
+	interactionTypeOverride?: InteractionTypeOverride;
 }
 
 export type IChatRequestTelemetryProperties = {
@@ -378,46 +385,24 @@ export interface INetworkRequestOptions {
 	readonly useFetcher?: FetcherId;
 	readonly canRetryOnce?: boolean;
 	readonly location?: ChatLocation;
-	readonly requestKindOptions?: IRequestKindOptions;
+	readonly interactionTypeOverride?: InteractionTypeOverride;
 }
 
 /**
- * Classifies a chat request for telemetry (`requestKind` on response events) and the
- * `X-Interaction-Type` header sent to CAPI. Mirrors the server's documented vocabulary.
+ * Override values for the `X-Interaction-Type` header (and matching `requestKind`
+ * telemetry value). Mirrors the server's documented vocabulary; only used when the
+ * location-derived intent isn't accurate.
  *
- * Header/telemetry value alignment:
- * - `Subagent`   → `conversation-subagent`
- * - `Background` → `conversation-background` (default for unmarked utility/helper calls)
- * - `MainAgent`  → resolved from `ChatLocation`: `conversation-panel` / `conversation-inline`
- *                  / `conversation-edits` / `conversation-agent` / `conversation-other` /
- *                  `conversation-notebook` / `conversation-terminal`. Use this to opt a
- *                  primary user-initiated turn out of the background default so the
- *                  location-derived value is sent on the wire.
+ * - `'conversation-subagent'` — nested LLM calls made by a subagent inside an
+ *   agent turn (search/exec subagents).
+ * - `'conversation-compaction'` — mid-agent-turn history compaction (user is
+ *   waiting; runs on the same model as the agent loop). Distinct from background
+ *   summarization, which uses a cheap model and is not tied to an active turn.
+ * - `'conversation-background'` — utility calls not tied to an active user turn
+ *   (e.g. chat title generation, conversation summarization, prompt categorization,
+ *   branch name suggestion, background todo processing).
  */
-export const RequestKind = {
-	MainAgent: 'mainagent',
-	Subagent: 'subagent',
-	Background: 'background',
-} as const;
-export type RequestKind = typeof RequestKind[keyof typeof RequestKind];
-
-export interface IRequestKindOptions {
-	readonly kind: RequestKind;
-}
-
-/**
- * Resolves the `X-Interaction-Type` value (and matching `requestKind` telemetry value)
- * from a `RequestKind` plus the location-derived intent. `MainAgent` falls through to
- * `intent` so panel/inline/edits/agent/other surfaces are reported as the server expects.
- */
-export function resolveInteractionType(kind: RequestKind | undefined, intent: string): string {
-	switch (kind) {
-		case RequestKind.Subagent: return 'conversation-subagent';
-		case RequestKind.Background: return 'conversation-background';
-		case RequestKind.MainAgent: return intent;
-		default: return intent;
-	}
-}
+export type InteractionTypeOverride = 'conversation-subagent' | 'conversation-compaction' | 'conversation-background';
 
 function networkRequest(
 	accessor: ServicesAccessor,
@@ -440,7 +425,7 @@ function networkRequest(
 		name: '',
 		version: '',
 	} satisfies IEndpoint : endpointOrUrl;
-	const agentInteractionType = resolveInteractionType(options.requestKindOptions?.kind, intent);
+	const agentInteractionType = options.interactionTypeOverride ?? intent;
 
 	const headers: ReqHeaders = {
 		Authorization: `Bearer ${secretKey}`,

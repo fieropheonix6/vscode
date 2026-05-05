@@ -15,7 +15,7 @@ import { StatelessNextEditTelemetryBuilder } from '../../../platform/inlineEdits
 import { ILanguageDiagnosticsService } from '../../../platform/languages/common/languageDiagnosticsService';
 import { ILogger } from '../../../platform/log/common/logService';
 import { OptionalChatRequestParams } from '../../../platform/networking/common/fetch';
-import { IChatEndpoint, RequestKind } from '../../../platform/networking/common/networking';
+import { IChatEndpoint } from '../../../platform/networking/common/networking';
 import { IProxyModelsService } from '../../../platform/proxyModels/common/proxyModelsService';
 import { IExperimentationService } from '../../../platform/telemetry/common/nullExperimentationService';
 import { backwardCompatSetting } from '../../../util/common/backwardCompatSetting';
@@ -195,7 +195,6 @@ export class XtabNextCursorPredictor {
 				finishedCb: undefined,
 				location: ChatLocation.Other,
 				requestOptions,
-				requestKindOptions: { kind: RequestKind.MainAgent },
 			},
 			cancellationToken,
 		);
