@@ -536,100 +536,112 @@ suite('dom', () => {
 		// Helper to wait for an animation frame
 		const waitForAnimationFrame = () => new Promise<void>(resolve => mainWindow.requestAnimationFrame(() => resolve()));
 
-		// Stub mainWindow.ResizeObserver so we can fire deliveries synthetically
-		// without depending on real layout. Returns a restore function.
-		function stubResizeObserver(): { fire: (entries: ResizeObserverEntry[]) => void; restore: () => void; disconnects: number } {
-			const original = mainWindow.ResizeObserver;
-			let captured: ResizeObserverCallback | undefined;
-			const state = {
-				disconnects: 0,
-				fire(entries: ResizeObserverEntry[]) {
-					captured!(entries, {} as ResizeObserver);
-				},
-				restore() {
-					(mainWindow as any).ResizeObserver = original;
-				}
-			};
-			class FakeRO {
-				constructor(cb: ResizeObserverCallback) { captured = cb; }
-				observe() { /* no-op */ }
-				unobserve() { /* no-op */ }
-				disconnect() { state.disconnects++; }
-			}
-			(mainWindow as any).ResizeObserver = FakeRO;
-			return state;
+		// Captures the callback handed to a `ResizeObserver` so tests can fire
+		// deliveries synthetically. Returned via dependency injection — no
+		// global mutation, no `any` casts.
+		interface FakeResizeObserverHandle {
+			ctor: typeof ResizeObserver;
+			fire: (entries: ResizeObserverEntry[]) => void;
+			disconnects: number;
 		}
 
-		const fakeEntry = (): ResizeObserverEntry => ({} as ResizeObserverEntry);
+		function createFakeResizeObserverCtor(): FakeResizeObserverHandle {
+			const handle: FakeResizeObserverHandle = {
+				ctor: undefined!,
+				fire: () => { throw new Error('observer not constructed'); },
+				disconnects: 0,
+			};
+			class FakeResizeObserver implements ResizeObserver {
+				constructor(callback: ResizeObserverCallback) {
+					handle.fire = entries => callback(entries, this);
+				}
+				observe(_target: Element, _options?: ResizeObserverOptions): void { /* no-op */ }
+				unobserve(_target: Element): void { /* no-op */ }
+				disconnect(): void { handle.disconnects++; }
+			}
+			handle.ctor = FakeResizeObserver;
+			return handle;
+		}
+
+		function fakeEntry(target: Element = document.createElement('div')): ResizeObserverEntry {
+			const size: ResizeObserverSize = { blockSize: 0, inlineSize: 0 };
+			return {
+				target,
+				contentRect: target.getBoundingClientRect(),
+				borderBoxSize: [size],
+				contentBoxSize: [size],
+				devicePixelContentBoxSize: [size],
+			};
+		}
 
 		test('defers callback to next animation frame (does not invoke synchronously)', async () => {
-			const stub = stubResizeObserver();
-			try {
-				let calls = 0;
-				const observer = new DisposableResizeObserver(() => { calls++; });
-				stub.fire([fakeEntry()]);
-				assert.strictEqual(calls, 0, 'callback must not run inside the resize-observation phase');
-				await waitForAnimationFrame();
-				assert.strictEqual(calls, 1);
-				observer.dispose();
-			} finally {
-				stub.restore();
-			}
+			const fake = createFakeResizeObserverCtor();
+			let calls = 0;
+			const observer = new DisposableResizeObserver(() => { calls++; }, mainWindow, fake.ctor);
+			fake.fire([fakeEntry()]);
+			assert.strictEqual(calls, 0, 'callback must not run inside the resize-observation phase');
+			await waitForAnimationFrame();
+			assert.strictEqual(calls, 1);
+			observer.dispose();
 		});
 
 		test('coalesces multiple deliveries within one frame into a single callback', async () => {
-			const stub = stubResizeObserver();
-			try {
-				let calls = 0;
-				let received: ResizeObserverEntry[] = [];
-				const observer = new DisposableResizeObserver(entries => {
-					calls++;
-					received = entries;
-				});
-				const a = fakeEntry();
-				const b = fakeEntry();
-				const c = fakeEntry();
-				stub.fire([a, b]);
-				stub.fire([c]);
-				await waitForAnimationFrame();
-				assert.strictEqual(calls, 1, 'multiple deliveries within one frame must coalesce');
-				assert.deepStrictEqual(received, [a, b, c], 'entries must be merged in delivery order');
-				observer.dispose();
-			} finally {
-				stub.restore();
-			}
+			const fake = createFakeResizeObserverCtor();
+			let calls = 0;
+			let received: ResizeObserverEntry[] = [];
+			const observer = new DisposableResizeObserver(entries => {
+				calls++;
+				received = entries;
+			}, mainWindow, fake.ctor);
+			const a = fakeEntry();
+			const b = fakeEntry();
+			const c = fakeEntry();
+			fake.fire([a, b]);
+			fake.fire([c]);
+			await waitForAnimationFrame();
+			assert.strictEqual(calls, 1, 'multiple deliveries within one frame must coalesce');
+			assert.strictEqual(received.length, 3, 'one entry per distinct target');
+			assert.deepStrictEqual(new Set(received), new Set([a, b, c]));
+			observer.dispose();
+		});
+
+		test('latest entry per target wins when the same target resizes twice in one frame', async () => {
+			const fake = createFakeResizeObserverCtor();
+			let received: ResizeObserverEntry[] = [];
+			const observer = new DisposableResizeObserver(entries => { received = entries; }, mainWindow, fake.ctor);
+			const target = document.createElement('div');
+			const stale = fakeEntry(target);
+			const fresh = fakeEntry(target);
+			fake.fire([stale]);
+			fake.fire([fresh]);
+			await waitForAnimationFrame();
+			assert.strictEqual(received.length, 1, 'duplicate target must collapse to one entry');
+			assert.strictEqual(received[0], fresh, 'consumers reading entries[0] must see the freshest size');
+			observer.dispose();
 		});
 
 		test('dispose cancels pending callback and disconnects observer', async () => {
-			const stub = stubResizeObserver();
-			try {
-				let calls = 0;
-				const observer = new DisposableResizeObserver(() => { calls++; });
-				stub.fire([fakeEntry()]);
-				observer.dispose();
-				await waitForAnimationFrame();
-				assert.strictEqual(calls, 0, 'pending callback must not fire after dispose');
-				assert.strictEqual(stub.disconnects, 1, 'underlying ResizeObserver must be disconnected');
-			} finally {
-				stub.restore();
-			}
+			const fake = createFakeResizeObserverCtor();
+			let calls = 0;
+			const observer = new DisposableResizeObserver(() => { calls++; }, mainWindow, fake.ctor);
+			fake.fire([fakeEntry()]);
+			observer.dispose();
+			await waitForAnimationFrame();
+			assert.strictEqual(calls, 0, 'pending callback must not fire after dispose');
+			assert.strictEqual(fake.disconnects, 1, 'underlying ResizeObserver must be disconnected');
 		});
 
 		test('reschedules after a frame fires (subsequent deliveries are not lost)', async () => {
-			const stub = stubResizeObserver();
-			try {
-				let calls = 0;
-				const observer = new DisposableResizeObserver(() => { calls++; });
-				stub.fire([fakeEntry()]);
-				await waitForAnimationFrame();
-				assert.strictEqual(calls, 1);
-				stub.fire([fakeEntry()]);
-				await waitForAnimationFrame();
-				assert.strictEqual(calls, 2);
-				observer.dispose();
-			} finally {
-				stub.restore();
-			}
+			const fake = createFakeResizeObserverCtor();
+			let calls = 0;
+			const observer = new DisposableResizeObserver(() => { calls++; }, mainWindow, fake.ctor);
+			fake.fire([fakeEntry()]);
+			await waitForAnimationFrame();
+			assert.strictEqual(calls, 1);
+			fake.fire([fakeEntry()]);
+			await waitForAnimationFrame();
+			assert.strictEqual(calls, 2);
+			observer.dispose();
 		});
 	});
 

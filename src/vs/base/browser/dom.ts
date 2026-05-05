@@ -2062,41 +2062,51 @@ export class DragAndDropObserver extends Disposable {
  * of re-entering the current one.
  *
  * @param callback Invoked with the coalesced list of entries, on the next
- * animation frame after the browser delivered them.
+ * animation frame after the browser delivered them. If the same target
+ * resizes more than once before the frame fires, only the most recent entry
+ * for that target is kept (latest-wins) so consumers reading `entries[0]`
+ * always see the freshest size.
  * @param targetWindow The window whose `ResizeObserver` constructor and
  * animation-frame timer should be used. Defaults to `mainWindow`. Pass the
  * containing window when creating an observer for elements that live in an
  * auxiliary window.
+ * @param resizeObserverCtor Optional `ResizeObserver` constructor override
+ * for tests. Defaults to `targetWindow.ResizeObserver`.
  */
 export class DisposableResizeObserver extends Disposable {
 
 	private readonly observer: ResizeObserver;
-	private pendingEntries: ResizeObserverEntry[] | undefined;
+	private pendingByTarget: Map<Element, ResizeObserverEntry> | undefined;
 	private scheduled: IDisposable | undefined;
 
-	constructor(callback: ResizeObserverCallback, targetWindow: CodeWindow = mainWindow) {
+	constructor(
+		callback: ResizeObserverCallback,
+		targetWindow: CodeWindow = mainWindow,
+		resizeObserverCtor: typeof ResizeObserver = targetWindow.ResizeObserver,
+	) {
 		super();
-		this.observer = new targetWindow.ResizeObserver((entries: ResizeObserverEntry[]) => {
-			if (this.pendingEntries) {
-				this.pendingEntries.push(...entries);
-				return;
+		this.observer = new resizeObserverCtor((entries: ResizeObserverEntry[]) => {
+			if (!this.pendingByTarget) {
+				this.pendingByTarget = new Map();
+				this.scheduled = scheduleAtNextAnimationFrame(targetWindow, () => {
+					const batch = Array.from(this.pendingByTarget!.values());
+					this.pendingByTarget = undefined;
+					this.scheduled = undefined;
+					try {
+						callback(batch, this.observer);
+					} catch (e) {
+						onUnexpectedError(e);
+					}
+				});
 			}
-			this.pendingEntries = entries.slice();
-			this.scheduled = scheduleAtNextAnimationFrame(targetWindow, () => {
-				const batch = this.pendingEntries!;
-				this.pendingEntries = undefined;
-				this.scheduled = undefined;
-				try {
-					callback(batch, this.observer);
-				} catch (e) {
-					onUnexpectedError(e);
-				}
-			});
+			for (const entry of entries) {
+				this.pendingByTarget.set(entry.target, entry);
+			}
 		});
 		this._register(toDisposable(() => {
 			this.scheduled?.dispose();
 			this.scheduled = undefined;
-			this.pendingEntries = undefined;
+			this.pendingByTarget = undefined;
 			this.observer.disconnect();
 		}));
 	}
