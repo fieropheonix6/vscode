@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import assert from 'assert';
-import { $, h, trackAttributes, copyAttributes, disposableWindowInterval, getWindows, getWindowsCount, getWindowId, getWindowById, hasWindow, getWindow, getDocument, isHTMLElement, SafeTriangle, AnimationFrameScheduler } from '../../browser/dom.js';
+import { $, h, trackAttributes, copyAttributes, disposableWindowInterval, getWindows, getWindowsCount, getWindowId, getWindowById, hasWindow, getWindow, getDocument, isHTMLElement, SafeTriangle, AnimationFrameScheduler, DisposableResizeObserver } from '../../browser/dom.js';
 import { asCssValueWithDefault } from '../../../base/browser/cssValue.js';
 import { ensureCodeWindow, isAuxiliaryWindow, mainWindow } from '../../browser/window.js';
 import { DeferredPromise, timeout } from '../../common/async.js';
@@ -529,6 +529,107 @@ suite('dom', () => {
 			assert.strictEqual(callCount, 2);
 
 			scheduler.dispose();
+		});
+	});
+
+	suite('DisposableResizeObserver', () => {
+		// Helper to wait for an animation frame
+		const waitForAnimationFrame = () => new Promise<void>(resolve => mainWindow.requestAnimationFrame(() => resolve()));
+
+		// Stub mainWindow.ResizeObserver so we can fire deliveries synthetically
+		// without depending on real layout. Returns a restore function.
+		function stubResizeObserver(): { fire: (entries: ResizeObserverEntry[]) => void; restore: () => void; disconnects: number } {
+			const original = mainWindow.ResizeObserver;
+			let captured: ResizeObserverCallback | undefined;
+			const state = {
+				disconnects: 0,
+				fire(entries: ResizeObserverEntry[]) {
+					captured!(entries, {} as ResizeObserver);
+				},
+				restore() {
+					(mainWindow as any).ResizeObserver = original;
+				}
+			};
+			class FakeRO {
+				constructor(cb: ResizeObserverCallback) { captured = cb; }
+				observe() { /* no-op */ }
+				unobserve() { /* no-op */ }
+				disconnect() { state.disconnects++; }
+			}
+			(mainWindow as any).ResizeObserver = FakeRO;
+			return state;
+		}
+
+		const fakeEntry = (): ResizeObserverEntry => ({} as ResizeObserverEntry);
+
+		test('defers callback to next animation frame (does not invoke synchronously)', async () => {
+			const stub = stubResizeObserver();
+			try {
+				let calls = 0;
+				const observer = new DisposableResizeObserver(() => { calls++; });
+				stub.fire([fakeEntry()]);
+				assert.strictEqual(calls, 0, 'callback must not run inside the resize-observation phase');
+				await waitForAnimationFrame();
+				assert.strictEqual(calls, 1);
+				observer.dispose();
+			} finally {
+				stub.restore();
+			}
+		});
+
+		test('coalesces multiple deliveries within one frame into a single callback', async () => {
+			const stub = stubResizeObserver();
+			try {
+				let calls = 0;
+				let received: ResizeObserverEntry[] = [];
+				const observer = new DisposableResizeObserver(entries => {
+					calls++;
+					received = entries;
+				});
+				const a = fakeEntry();
+				const b = fakeEntry();
+				const c = fakeEntry();
+				stub.fire([a, b]);
+				stub.fire([c]);
+				await waitForAnimationFrame();
+				assert.strictEqual(calls, 1, 'multiple deliveries within one frame must coalesce');
+				assert.deepStrictEqual(received, [a, b, c], 'entries must be merged in delivery order');
+				observer.dispose();
+			} finally {
+				stub.restore();
+			}
+		});
+
+		test('dispose cancels pending callback and disconnects observer', async () => {
+			const stub = stubResizeObserver();
+			try {
+				let calls = 0;
+				const observer = new DisposableResizeObserver(() => { calls++; });
+				stub.fire([fakeEntry()]);
+				observer.dispose();
+				await waitForAnimationFrame();
+				assert.strictEqual(calls, 0, 'pending callback must not fire after dispose');
+				assert.strictEqual(stub.disconnects, 1, 'underlying ResizeObserver must be disconnected');
+			} finally {
+				stub.restore();
+			}
+		});
+
+		test('reschedules after a frame fires (subsequent deliveries are not lost)', async () => {
+			const stub = stubResizeObserver();
+			try {
+				let calls = 0;
+				const observer = new DisposableResizeObserver(() => { calls++; });
+				stub.fire([fakeEntry()]);
+				await waitForAnimationFrame();
+				assert.strictEqual(calls, 1);
+				stub.fire([fakeEntry()]);
+				await waitForAnimationFrame();
+				assert.strictEqual(calls, 2);
+				observer.dispose();
+			} finally {
+				stub.restore();
+			}
 		});
 	});
 
