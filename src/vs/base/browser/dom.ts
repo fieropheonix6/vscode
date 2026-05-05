@@ -2048,73 +2048,114 @@ export class DragAndDropObserver extends Disposable {
 }
 
 /**
- * A wrapper around ResizeObserver that is disposable.
+ * A wrapper around `ResizeObserver` that is disposable.
  *
- * The user-supplied callback is invoked at most once per animation frame and
- * is scheduled via {@link scheduleAtNextAnimationFrame} rather than running
- * synchronously inside the browser's resize-observation phase. Coalescing
- * multiple `ResizeObserver` deliveries into a single call also avoids the
- * benign-but-noisy "ResizeObserver loop completed with undelivered
- * notifications" warning that Chromium emits whenever a callback writes to
- * layout (e.g. `scanDomNode()`, setting an element's height, KaTeX layout)
- * while the browser is still inside the resize-observation phase. Layout
- * writes performed by the callback now land in the next layout pass instead
- * of re-entering the current one.
+ * Behavior is intentionally identical to using `new ResizeObserver(callback)`
+ * directly: the user-supplied callback runs synchronously inside the
+ * browser's resize-observation phase, with the entries the browser delivered.
+ * The wrapper adds three things on top:
  *
- * @param callback Invoked with the coalesced list of entries, on the next
- * animation frame after the browser delivered them. If the same target
- * resizes more than once before the frame fires, only the most recent entry
- * for that target is kept (latest-wins) so consumers reading `entries[0]`
- * always see the freshest size.
- * @param targetWindow The window whose `ResizeObserver` constructor and
- * animation-frame timer should be used. Defaults to `mainWindow`. Pass the
- * containing window when creating an observer for elements that live in an
- * auxiliary window.
- * @param resizeObserverCtor Optional `ResizeObserver` constructor override
- * for tests. Defaults to `targetWindow.ResizeObserver`.
+ * 1. Lifetime management: `dispose()` disconnects the underlying observer.
+ * 2. Auxiliary-window support: pass `targetWindow` so the observer is
+ *    constructed in the realm of the element being observed.
+ * 3. Attribution for the
+ *    `ResizeObserver loop completed with undelivered notifications` warning:
+ *    each instance captures its construction stack (and an optional `name`),
+ *    and the first time the warning fires in `targetWindow` we log every
+ *    observer whose callback ran in the same task. This makes it possible to
+ *    pinpoint the offending consumer instead of seeing only the top-level
+ *    warning. The warning is delivered as an `ErrorEvent` on `window` (with a
+ *    `null` `error`), not a thrown exception, so a try/catch around the
+ *    callback cannot capture it; we use `addEventListener('error', ...)`.
+ *
+ * @param callback Invoked synchronously when the browser delivers resize
+ * notifications, with the same entries the native `ResizeObserver` would
+ * have delivered.
+ * @param targetWindow The window whose `ResizeObserver` constructor should
+ * be used. Defaults to `mainWindow`. Pass the containing window when
+ * creating an observer for elements that live in an auxiliary window.
+ * @param options Optional configuration. `name` is used in attribution
+ * logs; `resizeObserverCtor` is a test seam that defaults to
+ * `targetWindow.ResizeObserver`.
  */
 export class DisposableResizeObserver extends Disposable {
 
 	private readonly observer: ResizeObserver;
-	private pendingByTarget: Map<Element, ResizeObserverEntry> | undefined;
-	private scheduled: IDisposable | undefined;
+	readonly name: string | undefined;
+	readonly creationStack: string;
 
 	constructor(
 		callback: ResizeObserverCallback,
 		targetWindow: CodeWindow = mainWindow,
-		resizeObserverCtor: typeof ResizeObserver = targetWindow.ResizeObserver,
+		options?: { name?: string; resizeObserverCtor?: typeof ResizeObserver },
 	) {
 		super();
-		this.observer = new resizeObserverCtor((entries: ResizeObserverEntry[]) => {
-			if (!this.pendingByTarget) {
-				this.pendingByTarget = new Map();
-				this.scheduled = scheduleAtNextAnimationFrame(targetWindow, () => {
-					const batch = Array.from(this.pendingByTarget!.values());
-					this.pendingByTarget = undefined;
-					this.scheduled = undefined;
-					try {
-						callback(batch, this.observer);
-					} catch (e) {
-						onUnexpectedError(e);
-					}
-				});
-			}
-			for (const entry of entries) {
-				this.pendingByTarget.set(entry.target, entry);
+		this.name = options?.name;
+		this.creationStack = new Error().stack ?? '';
+		installResizeObserverLoopAttribution(targetWindow);
+		const ctor = options?.resizeObserverCtor ?? targetWindow.ResizeObserver;
+		this.observer = new ctor((entries: ResizeObserverEntry[], observer) => {
+			recordResizeObserverCallbackInvocation(this);
+			try {
+				callback(entries, observer);
+			} catch (e) {
+				onUnexpectedError(e);
 			}
 		});
-		this._register(toDisposable(() => {
-			this.scheduled?.dispose();
-			this.scheduled = undefined;
-			this.pendingByTarget = undefined;
-			this.observer.disconnect();
-		}));
+		this._register(toDisposable(() => this.observer.disconnect()));
 	}
 
 	observe(target: Element, options?: ResizeObserverOptions): IDisposable {
 		this.observer.observe(target, options);
 		return toDisposable(() => this.observer.unobserve(target));
 	}
+}
+
+/**
+ * Set of `DisposableResizeObserver`s whose callbacks ran since the last time
+ * the `ResizeObserver loop completed with undelivered notifications` warning
+ * fired. The warning is dispatched synchronously after all callbacks for a
+ * frame have run, so this set still contains the suspects when our error
+ * listener inspects it. Cleared on every warning and after each animation
+ * frame to bound memory.
+ */
+const _firedSinceLastResizeWarning = new Set<DisposableResizeObserver>();
+let _firedFlushScheduled = false;
+const _attributionInstalledWindows = new WeakSet<CodeWindow>();
+
+function recordResizeObserverCallbackInvocation(observer: DisposableResizeObserver): void {
+	_firedSinceLastResizeWarning.add(observer);
+	if (!_firedFlushScheduled) {
+		_firedFlushScheduled = true;
+		mainWindow.requestAnimationFrame(() => {
+			_firedFlushScheduled = false;
+			_firedSinceLastResizeWarning.clear();
+		});
+	}
+}
+
+function installResizeObserverLoopAttribution(targetWindow: CodeWindow): void {
+	if (_attributionInstalledWindows.has(targetWindow)) {
+		return;
+	}
+	_attributionInstalledWindows.add(targetWindow);
+	targetWindow.addEventListener('error', (e: ErrorEvent) => {
+		if (typeof e.message !== 'string' || !e.message.includes('ResizeObserver loop')) {
+			return;
+		}
+		if (_firedSinceLastResizeWarning.size === 0) {
+			return;
+		}
+		const suspects = Array.from(_firedSinceLastResizeWarning, o => ({
+			name: o.name,
+			creationStack: o.creationStack,
+		}));
+		_firedSinceLastResizeWarning.clear();
+		// Use console.warn so it's visible in DevTools alongside the original
+		// browser warning but does not surface as an unexpected error in
+		// telemetry.
+		console.warn('[DisposableResizeObserver] ResizeObserver loop fired. Suspect callbacks (ran in same task):', suspects);
+	});
 }
 
 type HTMLElementAttributeKeys<T> = Partial<{ [K in keyof T]: T[K] extends Function ? never : T[K] extends object ? HTMLElementAttributeKeys<T[K]> : T[K] }>;

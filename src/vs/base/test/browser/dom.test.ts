@@ -533,9 +533,6 @@ suite('dom', () => {
 	});
 
 	suite('DisposableResizeObserver', () => {
-		// Helper to wait for an animation frame
-		const waitForAnimationFrame = () => new Promise<void>(resolve => mainWindow.requestAnimationFrame(() => resolve()));
-
 		// Captures the callback handed to a `ResizeObserver` so tests can fire
 		// deliveries synthetically. Returned via dependency injection — no
 		// global mutation, no `any` casts.
@@ -574,73 +571,58 @@ suite('dom', () => {
 			};
 		}
 
-		test('defers callback to next animation frame (does not invoke synchronously)', async () => {
+		test('callback runs synchronously with the entries the browser delivered', () => {
 			const fake = createFakeResizeObserverCtor();
 			let calls = 0;
-			const observer = new DisposableResizeObserver(() => { calls++; }, mainWindow, fake.ctor);
-			fake.fire([fakeEntry()]);
-			assert.strictEqual(calls, 0, 'callback must not run inside the resize-observation phase');
-			await waitForAnimationFrame();
-			assert.strictEqual(calls, 1);
-			observer.dispose();
-		});
-
-		test('coalesces multiple deliveries within one frame into a single callback', async () => {
-			const fake = createFakeResizeObserverCtor();
-			let calls = 0;
-			let received: ResizeObserverEntry[] = [];
-			const observer = new DisposableResizeObserver(entries => {
+			let received: ResizeObserverEntry[] | undefined;
+			const observer = new DisposableResizeObserver((entries) => {
 				calls++;
 				received = entries;
-			}, mainWindow, fake.ctor);
+			}, mainWindow, { resizeObserverCtor: fake.ctor });
 			const a = fakeEntry();
 			const b = fakeEntry();
-			const c = fakeEntry();
 			fake.fire([a, b]);
-			fake.fire([c]);
-			await waitForAnimationFrame();
-			assert.strictEqual(calls, 1, 'multiple deliveries within one frame must coalesce');
-			assert.strictEqual(received.length, 3, 'one entry per distinct target');
-			assert.deepStrictEqual(new Set(received), new Set([a, b, c]));
+			assert.strictEqual(calls, 1, 'callback runs synchronously inside the resize-observation phase');
+			assert.deepStrictEqual(received, [a, b], 'entries are forwarded as-is');
 			observer.dispose();
 		});
 
-		test('latest entry per target wins when the same target resizes twice in one frame', async () => {
-			const fake = createFakeResizeObserverCtor();
-			let received: ResizeObserverEntry[] = [];
-			const observer = new DisposableResizeObserver(entries => { received = entries; }, mainWindow, fake.ctor);
-			const target = document.createElement('div');
-			const stale = fakeEntry(target);
-			const fresh = fakeEntry(target);
-			fake.fire([stale]);
-			fake.fire([fresh]);
-			await waitForAnimationFrame();
-			assert.strictEqual(received.length, 1, 'duplicate target must collapse to one entry');
-			assert.strictEqual(received[0], fresh, 'consumers reading entries[0] must see the freshest size');
-			observer.dispose();
-		});
-
-		test('dispose cancels pending callback and disconnects observer', async () => {
+		test('each native delivery invokes the callback once (no batching)', () => {
 			const fake = createFakeResizeObserverCtor();
 			let calls = 0;
-			const observer = new DisposableResizeObserver(() => { calls++; }, mainWindow, fake.ctor);
+			const observer = new DisposableResizeObserver(() => { calls++; }, mainWindow, { resizeObserverCtor: fake.ctor });
 			fake.fire([fakeEntry()]);
+			fake.fire([fakeEntry()]);
+			assert.strictEqual(calls, 2, 'wrapper does not coalesce deliveries');
 			observer.dispose();
-			await waitForAnimationFrame();
-			assert.strictEqual(calls, 0, 'pending callback must not fire after dispose');
-			assert.strictEqual(fake.disconnects, 1, 'underlying ResizeObserver must be disconnected');
 		});
 
-		test('reschedules after a frame fires (subsequent deliveries are not lost)', async () => {
+		test('dispose disconnects the underlying observer', () => {
 			const fake = createFakeResizeObserverCtor();
-			let calls = 0;
-			const observer = new DisposableResizeObserver(() => { calls++; }, mainWindow, fake.ctor);
-			fake.fire([fakeEntry()]);
-			await waitForAnimationFrame();
-			assert.strictEqual(calls, 1);
-			fake.fire([fakeEntry()]);
-			await waitForAnimationFrame();
-			assert.strictEqual(calls, 2);
+			const observer = new DisposableResizeObserver(() => { /* noop */ }, mainWindow, { resizeObserverCtor: fake.ctor });
+			observer.dispose();
+			assert.strictEqual(fake.disconnects, 1);
+		});
+
+		test('exceptions in the user callback do not propagate', () => {
+			const fake = createFakeResizeObserverCtor();
+			const observer = new DisposableResizeObserver(() => { throw new Error('boom'); }, mainWindow, { resizeObserverCtor: fake.ctor });
+			// Browser would not catch a throw out of the native callback; we
+			// must guard so a single bad consumer does not break delivery for
+			// every other observer in the realm.
+			assert.doesNotThrow(() => fake.fire([fakeEntry()]));
+			observer.dispose();
+		});
+
+		test('captures construction stack and optional name for attribution', () => {
+			const fake = createFakeResizeObserverCtor();
+			const observer = new DisposableResizeObserver(
+				() => { /* noop */ },
+				mainWindow,
+				{ name: 'my-observer', resizeObserverCtor: fake.ctor },
+			);
+			assert.strictEqual(observer.name, 'my-observer');
+			assert.ok(observer.creationStack.length > 0, 'creation stack must be captured');
 			observer.dispose();
 		});
 	});
