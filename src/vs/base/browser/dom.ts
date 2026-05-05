@@ -2049,15 +2049,56 @@ export class DragAndDropObserver extends Disposable {
 
 /**
  * A wrapper around ResizeObserver that is disposable.
+ *
+ * The user-supplied callback is invoked at most once per animation frame and
+ * is scheduled via {@link scheduleAtNextAnimationFrame} rather than running
+ * synchronously inside the browser's resize-observation phase. Coalescing
+ * multiple `ResizeObserver` deliveries into a single call also avoids the
+ * benign-but-noisy "ResizeObserver loop completed with undelivered
+ * notifications" warning that Chromium emits whenever a callback writes to
+ * layout (e.g. `scanDomNode()`, setting an element's height, KaTeX layout)
+ * while the browser is still inside the resize-observation phase. Layout
+ * writes performed by the callback now land in the next layout pass instead
+ * of re-entering the current one.
+ *
+ * @param callback Invoked with the coalesced list of entries, on the next
+ * animation frame after the browser delivered them.
+ * @param targetWindow The window whose `ResizeObserver` constructor and
+ * animation-frame timer should be used. Defaults to `mainWindow`. Pass the
+ * containing window when creating an observer for elements that live in an
+ * auxiliary window.
  */
 export class DisposableResizeObserver extends Disposable {
 
 	private readonly observer: ResizeObserver;
+	private pendingEntries: ResizeObserverEntry[] | undefined;
+	private scheduled: IDisposable | undefined;
 
-	constructor(callback: ResizeObserverCallback) {
+	constructor(callback: ResizeObserverCallback, targetWindow: CodeWindow = mainWindow) {
 		super();
-		this.observer = new ResizeObserver(callback);
-		this._register(toDisposable(() => this.observer.disconnect()));
+		this.observer = new targetWindow.ResizeObserver((entries: ResizeObserverEntry[]) => {
+			if (this.pendingEntries) {
+				this.pendingEntries.push(...entries);
+				return;
+			}
+			this.pendingEntries = entries.slice();
+			this.scheduled = scheduleAtNextAnimationFrame(targetWindow, () => {
+				const batch = this.pendingEntries!;
+				this.pendingEntries = undefined;
+				this.scheduled = undefined;
+				try {
+					callback(batch, this.observer);
+				} catch (e) {
+					onUnexpectedError(e);
+				}
+			});
+		});
+		this._register(toDisposable(() => {
+			this.scheduled?.dispose();
+			this.scheduled = undefined;
+			this.pendingEntries = undefined;
+			this.observer.disconnect();
+		}));
 	}
 
 	observe(target: Element, options?: ResizeObserverOptions): IDisposable {

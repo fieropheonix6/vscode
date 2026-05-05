@@ -344,9 +344,8 @@ export class ChatMarkdownContentPart extends Disposable implements IChatContentP
 			store.add(markdownDecorationsRenderer.walkTreeAndAnnotateReferenceLinks(this.markdown, result.element));
 
 			const layoutParticipants = new Lazy(() => {
-				const observer = new ResizeObserver(() => this.mathLayoutParticipants.forEach(layout => layout()));
-				observer.observe(this.domNode);
-				store.add(toDisposable(() => observer.disconnect()));
+				const observer = store.add(new dom.DisposableResizeObserver(() => this.mathLayoutParticipants.forEach(layout => layout())));
+				store.add(observer.observe(this.domNode));
 				return this.mathLayoutParticipants;
 			});
 
