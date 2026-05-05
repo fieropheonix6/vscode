@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import assert from 'assert';
-import { $, h, trackAttributes, copyAttributes, disposableWindowInterval, getWindows, getWindowsCount, getWindowId, getWindowById, hasWindow, getWindow, getDocument, isHTMLElement, SafeTriangle, AnimationFrameScheduler, DisposableResizeObserver } from '../../browser/dom.js';
+import { $, h, trackAttributes, copyAttributes, disposableWindowInterval, getWindows, getWindowsCount, getWindowId, getWindowById, hasWindow, getWindow, getDocument, isHTMLElement, SafeTriangle, AnimationFrameScheduler, DisposableResizeObserver, getRecentDisposableResizeObserverAttributionForLoopError } from '../../browser/dom.js';
 import { asCssValueWithDefault } from '../../../base/browser/cssValue.js';
 import { ensureCodeWindow, isAuxiliaryWindow, mainWindow } from '../../browser/window.js';
 import { DeferredPromise, timeout } from '../../common/async.js';
@@ -575,7 +575,7 @@ suite('dom', () => {
 			const fake = createFakeResizeObserverCtor();
 			let calls = 0;
 			let received: ResizeObserverEntry[] | undefined;
-			const observer = new DisposableResizeObserver((entries) => {
+			const observer = new DisposableResizeObserver('test.sync', (entries) => {
 				calls++;
 				received = entries;
 			}, mainWindow, { resizeObserverCtor: fake.ctor });
@@ -590,7 +590,7 @@ suite('dom', () => {
 		test('each native delivery invokes the callback once (no batching)', () => {
 			const fake = createFakeResizeObserverCtor();
 			let calls = 0;
-			const observer = new DisposableResizeObserver(() => { calls++; }, mainWindow, { resizeObserverCtor: fake.ctor });
+			const observer = new DisposableResizeObserver('test.noBatch', () => { calls++; }, mainWindow, { resizeObserverCtor: fake.ctor });
 			fake.fire([fakeEntry()]);
 			fake.fire([fakeEntry()]);
 			assert.strictEqual(calls, 2, 'wrapper does not coalesce deliveries');
@@ -599,14 +599,14 @@ suite('dom', () => {
 
 		test('dispose disconnects the underlying observer', () => {
 			const fake = createFakeResizeObserverCtor();
-			const observer = new DisposableResizeObserver(() => { /* noop */ }, mainWindow, { resizeObserverCtor: fake.ctor });
+			const observer = new DisposableResizeObserver('test.dispose', () => { /* noop */ }, mainWindow, { resizeObserverCtor: fake.ctor });
 			observer.dispose();
 			assert.strictEqual(fake.disconnects, 1);
 		});
 
 		test('exceptions in the user callback do not propagate', () => {
 			const fake = createFakeResizeObserverCtor();
-			const observer = new DisposableResizeObserver(() => { throw new Error('boom'); }, mainWindow, { resizeObserverCtor: fake.ctor });
+			const observer = new DisposableResizeObserver('test.throw', () => { throw new Error('boom'); }, mainWindow, { resizeObserverCtor: fake.ctor });
 			// Browser would not catch a throw out of the native callback; we
 			// must guard so a single bad consumer does not break delivery for
 			// every other observer in the realm.
@@ -614,16 +614,37 @@ suite('dom', () => {
 			observer.dispose();
 		});
 
-		test('captures construction stack and optional name for attribution', () => {
+		test('exposes the configured name for attribution', () => {
 			const fake = createFakeResizeObserverCtor();
 			const observer = new DisposableResizeObserver(
+				'my-observer',
 				() => { /* noop */ },
 				mainWindow,
-				{ name: 'my-observer', resizeObserverCtor: fake.ctor },
+				{ resizeObserverCtor: fake.ctor },
 			);
 			assert.strictEqual(observer.name, 'my-observer');
-			assert.ok(observer.creationStack.length > 0, 'creation stack must be captured');
 			observer.dispose();
+		});
+
+		test('getRecentDisposableResizeObserverAttributionForLoopError returns undefined for unrelated messages', () => {
+			assert.strictEqual(getRecentDisposableResizeObserverAttributionForLoopError(undefined), undefined);
+			assert.strictEqual(getRecentDisposableResizeObserverAttributionForLoopError('Uncaught TypeError: foo'), undefined);
+		});
+
+		test('getRecentDisposableResizeObserverAttributionForLoopError returns last invoked observer name for the loop warning', () => {
+			const fake = createFakeResizeObserverCtor();
+			const a = new DisposableResizeObserver('a', () => { /* noop */ }, mainWindow, { resizeObserverCtor: fake.ctor });
+			fake.fire([fakeEntry()]);
+			const fakeB = createFakeResizeObserverCtor();
+			const b = new DisposableResizeObserver('b', () => { /* noop */ }, mainWindow, { resizeObserverCtor: fakeB.ctor });
+			fakeB.fire([fakeEntry()]);
+			const attribution = getRecentDisposableResizeObserverAttributionForLoopError(
+				'ResizeObserver loop completed with undelivered notifications.',
+			);
+			assert.ok(attribution, 'attribution string must be produced for the loop warning');
+			assert.ok(attribution!.startsWith('[DisposableResizeObserver(b)] '), 'attribution prefixes the message with the most recently invoked observer name');
+			a.dispose();
+			b.dispose();
 		});
 	});
 

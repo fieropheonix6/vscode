@@ -71,7 +71,7 @@ class BrowserFindWidget extends SimpleFindWidget {
 		container.appendChild(domNode);
 
 		let lastHeight = domNode.offsetHeight;
-		const resizeObserver = this._register(new DisposableResizeObserver(() => {
+		const resizeObserver = this._register(new DisposableResizeObserver('BrowserEditorFindFeature.heightChange', () => {
 			const newHeight = domNode.offsetHeight;
 			if (newHeight !== lastHeight) {
 				lastHeight = newHeight;

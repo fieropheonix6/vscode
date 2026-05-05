@@ -2060,42 +2060,41 @@ export class DragAndDropObserver extends Disposable {
  *    constructed in the realm of the element being observed.
  * 3. Attribution for the
  *    `ResizeObserver loop completed with undelivered notifications` warning:
- *    each instance captures its construction stack (and an optional `name`),
- *    and the first time the warning fires in `targetWindow` we log every
- *    observer whose callback ran in the same task. This makes it possible to
- *    pinpoint the offending consumer instead of seeing only the top-level
- *    warning. The warning is delivered as an `ErrorEvent` on `window` (with a
- *    `null` `error`), not a thrown exception, so a try/catch around the
- *    callback cannot capture it; we use `addEventListener('error', ...)`.
+ *    each instance carries a stable `name`, and just before invoking the
+ *    user callback we publish that name to a module-level slot. The warning
+ *    is delivered as a stackless `ErrorEvent` on `window` after callbacks
+ *    run, so error telemetry can swap in the most-recently-invoked
+ *    observer's name to pinpoint the offending consumer (see
+ *    {@link getRecentDisposableResizeObserverAttributionForLoopError}).
  *
+ * @param name Stable identifier used in attribution. Prefer something that
+ * survives minification and refactors (e.g. the consumer class + purpose)
+ * since callstacks change across releases.
  * @param callback Invoked synchronously when the browser delivers resize
  * notifications, with the same entries the native `ResizeObserver` would
  * have delivered.
  * @param targetWindow The window whose `ResizeObserver` constructor should
  * be used. Defaults to `mainWindow`. Pass the containing window when
  * creating an observer for elements that live in an auxiliary window.
- * @param options Optional configuration. `name` is used in attribution
- * logs; `resizeObserverCtor` is a test seam that defaults to
- * `targetWindow.ResizeObserver`.
+ * @param options Optional configuration. `resizeObserverCtor` is a test
+ * seam that defaults to `targetWindow.ResizeObserver`.
  */
 export class DisposableResizeObserver extends Disposable {
 
 	private readonly observer: ResizeObserver;
-	readonly name: string | undefined;
-	readonly creationStack: string;
+	readonly name: string;
 
 	constructor(
+		name: string,
 		callback: ResizeObserverCallback,
 		targetWindow: CodeWindow = mainWindow,
-		options?: { name?: string; resizeObserverCtor?: typeof ResizeObserver },
+		options?: { resizeObserverCtor?: typeof ResizeObserver },
 	) {
 		super();
-		this.name = options?.name;
-		this.creationStack = new Error().stack ?? '';
-		installResizeObserverLoopAttribution(targetWindow);
+		this.name = name;
 		const ctor = options?.resizeObserverCtor ?? targetWindow.ResizeObserver;
 		this.observer = new ctor((entries: ResizeObserverEntry[], observer) => {
-			recordResizeObserverCallbackInvocation(this);
+			_lastInvokedDisposableResizeObserver = this;
 			try {
 				callback(entries, observer);
 			} catch (e) {
@@ -2112,50 +2111,30 @@ export class DisposableResizeObserver extends Disposable {
 }
 
 /**
- * Set of `DisposableResizeObserver`s whose callbacks ran since the last time
- * the `ResizeObserver loop completed with undelivered notifications` warning
- * fired. The warning is dispatched synchronously after all callbacks for a
- * frame have run, so this set still contains the suspects when our error
- * listener inspects it. Cleared on every warning and after each animation
- * frame to bound memory.
+ * The most recently invoked `DisposableResizeObserver`. Set just before each
+ * user callback runs and never cleared. The
+ * `ResizeObserver loop completed with undelivered notifications` warning
+ * fires as a stackless `ErrorEvent` after callbacks have run, so this slot
+ * still points at a plausible suspect when telemetry asks about it.
  */
-const _firedSinceLastResizeWarning = new Set<DisposableResizeObserver>();
-let _firedFlushScheduled = false;
-const _attributionInstalledWindows = new WeakSet<CodeWindow>();
+let _lastInvokedDisposableResizeObserver: DisposableResizeObserver | undefined;
 
-function recordResizeObserverCallbackInvocation(observer: DisposableResizeObserver): void {
-	_firedSinceLastResizeWarning.add(observer);
-	if (!_firedFlushScheduled) {
-		_firedFlushScheduled = true;
-		mainWindow.requestAnimationFrame(() => {
-			_firedFlushScheduled = false;
-			_firedSinceLastResizeWarning.clear();
-		});
+/**
+ * If `message` looks like the ResizeObserver loop warning, return an
+ * attribution string built from the most recently invoked
+ * `DisposableResizeObserver` so error telemetry can replace its synthetic,
+ * stackless callstack with the offending observer's `name`. Returns
+ * `undefined` for unrelated messages or when no observer has fired yet.
+ */
+export function getRecentDisposableResizeObserverAttributionForLoopError(message: string | undefined | null): string | undefined {
+	if (typeof message !== 'string' || !message.includes('ResizeObserver loop')) {
+		return undefined;
 	}
-}
-
-function installResizeObserverLoopAttribution(targetWindow: CodeWindow): void {
-	if (_attributionInstalledWindows.has(targetWindow)) {
-		return;
+	const observer = _lastInvokedDisposableResizeObserver;
+	if (!observer) {
+		return undefined;
 	}
-	_attributionInstalledWindows.add(targetWindow);
-	targetWindow.addEventListener('error', (e: ErrorEvent) => {
-		if (typeof e.message !== 'string' || !e.message.includes('ResizeObserver loop')) {
-			return;
-		}
-		if (_firedSinceLastResizeWarning.size === 0) {
-			return;
-		}
-		const suspects = Array.from(_firedSinceLastResizeWarning, o => ({
-			name: o.name,
-			creationStack: o.creationStack,
-		}));
-		_firedSinceLastResizeWarning.clear();
-		// Use console.warn so it's visible in DevTools alongside the original
-		// browser warning but does not surface as an unexpected error in
-		// telemetry.
-		console.warn('[DisposableResizeObserver] ResizeObserver loop fired. Suspect callbacks (ran in same task):', suspects);
-	});
+	return `[DisposableResizeObserver(${observer.name})] ${message}`;
 }
 
 type HTMLElementAttributeKeys<T> = Partial<{ [K in keyof T]: T[K] extends Function ? never : T[K] extends object ? HTMLElementAttributeKeys<T[K]> : T[K] }>;
