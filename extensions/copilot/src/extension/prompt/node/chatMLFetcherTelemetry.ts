@@ -39,9 +39,7 @@ export interface IChatMLFetcherCancellationProperties {
 	apiType: string | undefined;
 	transport: string;
 	interactionType: string;
-	conversationId?: string;
 	associatedRequestId?: string;
-	parentRequestId?: string;
 	retryAfterError?: string;
 	retryAfterErrorGitHubRequestId?: string;
 	connectivityTestError?: string;
@@ -125,7 +123,6 @@ export class ChatMLFetcherTelemetrySender {
 				"requestId": { "classification": "SystemMetaData", "purpose": "PerformanceAndHealth", "comment": "Id of the current turn request" },
 				"gitHubRequestId": { "classification": "SystemMetaData", "purpose": "PerformanceAndHealth", "comment": "GitHub request id if available" },
 				"associatedRequestId": { "classification": "SystemMetaData", "purpose": "FeatureInsight", "comment": "Another request ID that this request is associated with (eg, the originating request of a summarization request)." },
-				"parentRequestId": { "classification": "SystemMetaData", "purpose": "FeatureInsight", "comment": "For a subagent: the request id of the main agent request that invoked this subagent." },
 				"reasoningEffort": { "classification": "SystemMetaData", "purpose": "PerformanceAndHealth", "comment": "Reasoning effort level" },
 				"reasoningSummary": { "classification": "SystemMetaData", "purpose": "PerformanceAndHealth", "comment": "Reasoning summary level" },
 				"fetcher": { "classification": "SystemMetaData", "purpose": "PerformanceAndHealth", "comment": "The fetcher used for the request" },
@@ -175,7 +172,6 @@ export class ChatMLFetcherTelemetrySender {
 			requestId: chatCompletion.requestId.headerRequestId,
 			gitHubRequestId: chatCompletion.requestId.gitHubRequestId,
 			associatedRequestId: baseTelemetry?.properties.associatedRequestId,
-			parentRequestId: baseTelemetry?.properties.parentRequestId,
 			reasoningEffort: requestBody.reasoning?.effort ?? requestBody.output_config?.effort,
 			reasoningSummary: requestBody.reasoning?.summary,
 			modelCallId,
@@ -223,9 +219,7 @@ export class ChatMLFetcherTelemetrySender {
 			apiType,
 			transport,
 			interactionType,
-			conversationId,
 			associatedRequestId,
-			parentRequestId,
 			retryAfterError,
 			retryAfterErrorGitHubRequestId,
 			connectivityTestError,
@@ -257,10 +251,8 @@ export class ChatMLFetcherTelemetrySender {
 				"apiType": { "classification": "SystemMetaData", "purpose": "PerformanceAndHealth", "comment": "API type for the response- chat completions or responses" },
 				"source": { "classification": "SystemMetaData", "purpose": "PerformanceAndHealth", "comment": "Source for why the request was made" },
 				"requestKind": { "classification": "SystemMetaData", "purpose": "FeatureInsight", "comment": "Resolved X-Interaction-Type for the request: 'conversation-agent', 'conversation-subagent', 'conversation-background', 'conversation-panel', 'conversation-inline', 'conversation-edits', 'conversation-other', 'conversation-notebook', or 'conversation-terminal'" },
-				"conversationId": { "classification": "SystemMetaData", "purpose": "FeatureInsight", "comment": "Id for the current chat conversation." },
 				"requestId": { "classification": "SystemMetaData", "purpose": "PerformanceAndHealth", "comment": "Id of the request" },
 				"associatedRequestId": { "classification": "SystemMetaData", "purpose": "FeatureInsight", "comment": "Another request ID that this request is associated with (eg, the originating request of a summarization request)." },
-				"parentRequestId": { "classification": "SystemMetaData", "purpose": "FeatureInsight", "comment": "For a subagent: the request id of the main agent request that invoked this subagent." },
 				"fetcher": { "classification": "SystemMetaData", "purpose": "PerformanceAndHealth", "comment": "The fetcher used for the request" },
 				"transport": { "classification": "SystemMetaData", "purpose": "PerformanceAndHealth", "comment": "The transport used for the request (http or websocket)" },
 				"totalTokenMax": { "classification": "SystemMetaData", "purpose": "PerformanceAndHealth", "comment": "Maximum total token window", "isMeasurement": true },
@@ -290,9 +282,7 @@ export class ChatMLFetcherTelemetrySender {
 			requestId,
 			model,
 			requestKind: interactionType,
-			conversationId,
 			associatedRequestId,
-			parentRequestId,
 			...(fetcher ? { fetcher } : {}),
 			transport,
 			...(retryAfterError ? { retryAfterError } : {}),
@@ -349,11 +339,9 @@ export class ChatMLFetcherTelemetrySender {
 				"apiType": { "classification": "SystemMetaData", "purpose": "PerformanceAndHealth", "comment": "API type for the response- chat completions or responses" },
 				"source": { "classification": "SystemMetaData", "purpose": "PerformanceAndHealth", "comment": "Source for why the request was made" },
 				"requestKind": { "classification": "SystemMetaData", "purpose": "FeatureInsight", "comment": "Resolved X-Interaction-Type for the request: 'conversation-agent', 'conversation-subagent', 'conversation-background', 'conversation-panel', 'conversation-inline', 'conversation-edits', 'conversation-other', 'conversation-notebook', or 'conversation-terminal'" },
-				"conversationId": { "classification": "SystemMetaData", "purpose": "FeatureInsight", "comment": "Id for the current chat conversation." },
 				"requestId": { "classification": "SystemMetaData", "purpose": "PerformanceAndHealth", "comment": "Id of the request" },
 				"gitHubRequestId": { "classification": "SystemMetaData", "purpose": "PerformanceAndHealth", "comment": "GitHub request id if available" },
 				"associatedRequestId": { "classification": "SystemMetaData", "purpose": "FeatureInsight", "comment": "Another request ID that this request is associated with (eg, the originating request of a summarization request)." },
-				"parentRequestId": { "classification": "SystemMetaData", "purpose": "FeatureInsight", "comment": "For a subagent: the request id of the main agent request that invoked this subagent." },
 				"reasoningEffort": { "classification": "SystemMetaData", "purpose": "PerformanceAndHealth", "comment": "Reasoning effort level" },
 				"reasoningSummary": { "classification": "SystemMetaData", "purpose": "PerformanceAndHealth", "comment": "Reasoning summary level" },
 				"fetcher": { "classification": "SystemMetaData", "purpose": "PerformanceAndHealth", "comment": "The fetcher used for the request" },
@@ -384,7 +372,6 @@ export class ChatMLFetcherTelemetrySender {
 			reason: processed.reasonDetail || processed.reason,
 			source: telemetryProperties?.messageSource ?? 'unknown',
 			requestKind: interactionType,
-			conversationId: telemetryProperties?.conversationId,
 			requestId: processed.requestId,
 			gitHubRequestId: processed.serverRequestId,
 			model: chatEndpointInfo.model,
@@ -394,7 +381,6 @@ export class ChatMLFetcherTelemetrySender {
 			...(fetcher ? { fetcher } : {}),
 			transport,
 			associatedRequestId: telemetryProperties?.associatedRequestId,
-			parentRequestId: telemetryProperties?.parentRequestId,
 			...(telemetryProperties?.retryAfterError ? { retryAfterError: telemetryProperties.retryAfterError } : {}),
 			...(telemetryProperties?.retryAfterErrorGitHubRequestId ? { retryAfterErrorGitHubRequestId: telemetryProperties.retryAfterErrorGitHubRequestId } : {}),
 			...(telemetryProperties?.connectivityTestError ? { connectivityTestError: telemetryProperties.connectivityTestError } : {}),
