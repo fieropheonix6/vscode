@@ -19,10 +19,10 @@ import { MenuId } from '../../../../platform/actions/common/actions.js';
 import { HiddenItemStrategy, MenuWorkbenchToolBar, WorkbenchToolBar } from '../../../../platform/actions/browser/toolbar.js';
 import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
+import { IContextMenuService } from '../../../../platform/contextview/browser/contextView.js';
 import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
 import { ServiceCollection } from '../../../../platform/instantiation/common/serviceCollection.js';
-import { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js';
-import { ResultKind } from '../../../../platform/keybinding/common/keybindingResolver.js';
+import { IKeybindingService } from '../../../../platform/keybinding/common/keybinding.js'; import { ResultKind } from '../../../../platform/keybinding/common/keybindingResolver.js';
 import { IStorageService } from '../../../../platform/storage/common/storage.js';
 import { IThemeService } from '../../../../platform/theme/common/themeService.js';
 import { IEditorGroupView, IEditorPartsView } from './editor.js';
@@ -147,6 +147,7 @@ export class ModalEditorPart {
 		@IKeybindingService private readonly keybindingService: IKeybindingService,
 		@IHostService private readonly hostService: IHostService,
 		@IConfigurationService private readonly configurationService: IConfigurationService,
+		@IContextMenuService private readonly contextMenuService: IContextMenuService,
 	) {
 	}
 
@@ -382,6 +383,21 @@ export class ModalEditorPart {
 			EventHelper.stop(e);
 
 			editorPart.handleHeaderDoubleClick();
+		}));
+
+		// Handle right-click on header to open context menu
+		disposables.add(addDisposableListener(headerElement, EventType.CONTEXT_MENU, e => {
+			const target = e.target;
+			if (isHTMLElement(target) && (target.closest('.monaco-button') || target.closest('.action-item'))) {
+				return; // do not show our context menu over header buttons / actions
+			}
+
+			EventHelper.stop(e, true);
+
+			this.contextMenuService.showContextMenu({
+				menuId: MenuId.ModalEditorTitleContext,
+				getAnchor: () => ({ x: e.clientX, y: e.clientY })
+			});
 		}));
 
 		const layout = (sizeChanged: boolean) => {
