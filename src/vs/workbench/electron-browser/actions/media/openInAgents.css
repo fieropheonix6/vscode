@@ -47,11 +47,6 @@
 	transition: filter 160ms ease;
 }
 
-.monaco-reduce-motion .monaco-workbench .open-in-agents-titlebar-widget > .open-in-agents-titlebar-widget-icon,
-.monaco-workbench.monaco-reduce-motion .open-in-agents-titlebar-widget > .open-in-agents-titlebar-widget-icon {
-	transition-duration: 0ms !important;
-}
-
 .monaco-workbench .open-in-agents-titlebar-widget:hover > .open-in-agents-titlebar-widget-icon,
 .monaco-workbench .open-in-agents-titlebar-widget:focus-visible > .open-in-agents-titlebar-widget-icon {
 	filter: none;
@@ -72,12 +67,6 @@
 .monaco-workbench.monaco-enable-motion .open-in-agents-titlebar-widget > .open-in-agents-titlebar-widget-label {
 	transition: max-width 160ms ease, opacity 160ms ease, margin-left 160ms ease;
 	transition-delay: 200ms;
-}
-
-.monaco-reduce-motion .monaco-workbench .open-in-agents-titlebar-widget > .open-in-agents-titlebar-widget-label,
-.monaco-workbench.monaco-reduce-motion .open-in-agents-titlebar-widget > .open-in-agents-titlebar-widget-label {
-	transition-duration: 0ms !important;
-	transition-delay: 0ms !important;
 }
 
 .monaco-workbench .open-in-agents-titlebar-widget:hover,
