@@ -2095,6 +2095,18 @@ export class DisposableResizeObserver extends Disposable {
 		const ctor = options?.resizeObserverCtor ?? targetWindow.ResizeObserver;
 		this.observer = new ctor((entries: ResizeObserverEntry[], observer) => {
 			_lastInvokedDisposableResizeObserver = this;
+			// Microtasks run after the current task (the resize-observation
+			// phase + any synchronous `window.onerror` handlers triggered by
+			// the loop warning) but before the next task. Clearing the slot
+			// here scopes attribution to the same task that produced the
+			// warning, so unrelated errors fired later in the renderer don't
+			// inherit a stale observer name. The equality check ensures only
+			// the *last* writer in a phase actually clears the slot.
+			queueMicrotask(() => {
+				if (_lastInvokedDisposableResizeObserver === this) {
+					_lastInvokedDisposableResizeObserver = undefined;
+				}
+			});
 			try {
 				callback(entries, observer);
 			} catch (e) {
@@ -2112,10 +2124,10 @@ export class DisposableResizeObserver extends Disposable {
 
 /**
  * The most recently invoked `DisposableResizeObserver`. Set just before each
- * user callback runs and never cleared. The
+ * user callback runs and cleared by a microtask scheduled in the same step,
+ * so the slot only carries an attribution within the same task as the
  * `ResizeObserver loop completed with undelivered notifications` warning
- * fires as a stackless `ErrorEvent` after callbacks have run, so this slot
- * still points at a plausible suspect when telemetry asks about it.
+ * (which fires synchronously at the end of the resize-observation phase).
  */
 let _lastInvokedDisposableResizeObserver: DisposableResizeObserver | undefined;
 

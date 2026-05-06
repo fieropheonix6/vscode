@@ -655,6 +655,22 @@ suite('dom', () => {
 			a.dispose();
 			b.dispose();
 		});
+
+		test('getRecentDisposableResizeObserverAttributionForLoopError clears after a microtask so unrelated later errors are not mis-attributed', async () => {
+			const fake = createFakeResizeObserverCtor();
+			const observer = new DisposableResizeObserver('scoped', () => { /* noop */ }, mainWindow, { resizeObserverCtor: fake.ctor });
+			fake.fire([fakeEntry()]);
+			// Slot is set synchronously; attribution still works in this tick.
+			assert.ok(getRecentDisposableResizeObserverAttributionForLoopError('ResizeObserver loop completed with undelivered notifications.'));
+			// Yield once so the wrapper's queueMicrotask cleanup runs.
+			await Promise.resolve();
+			assert.strictEqual(
+				getRecentDisposableResizeObserverAttributionForLoopError('ResizeObserver loop completed with undelivered notifications.'),
+				undefined,
+				'slot must be cleared by the next microtask so an unrelated later error does not inherit a stale observer name',
+			);
+			observer.dispose();
+		});
 	});
 
 	ensureNoDisposablesAreLeakedInTestSuite();
