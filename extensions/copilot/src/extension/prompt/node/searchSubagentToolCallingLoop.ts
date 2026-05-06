@@ -173,7 +173,7 @@ export class SearchSubagentToolCallingLoop extends ToolCallingLoop<ISearchSubage
 				parentModelCallId: this.options.parentModelCallId,
 				iterationNumber: iterationNumber.toString(),
 			},
-			requestKindOptions: { kind: 'subagent' }
+			interactionTypeOverride: 'conversation-subagent'
 		}, token);
 	}
 }
