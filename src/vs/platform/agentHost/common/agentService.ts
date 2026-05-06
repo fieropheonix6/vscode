@@ -11,7 +11,7 @@ import { URI } from '../../../base/common/uri.js';
 import { createDecorator } from '../../instantiation/common/instantiation.js';
 import type { ISyncedCustomization } from './agentPluginManager.js';
 import type { IAgentSubscription } from './state/agentSubscription.js';
-import type { CreateTerminalParams, ResolveSessionConfigResult, SessionConfigCompletionsResult } from './state/protocol/commands.js';
+import type { CompletionsParams, CompletionsResult, CreateTerminalParams, ResolveSessionConfigResult, SessionConfigCompletionsResult } from './state/protocol/commands.js';
 import { ProtectedResourceMetadata, type ConfigSchema, type FileEdit, type ModelSelection, type SessionActiveClient, type ToolCallPendingConfirmationState, type ToolDefinition } from './state/protocol/state.js';
 import type { ActionEnvelope, INotification, IRootConfigChangedAction, SessionAction, TerminalAction } from './state/sessionActions.js';
 import type { ResourceCopyParams, ResourceCopyResult, ResourceDeleteParams, ResourceDeleteResult, ResourceListResult, ResourceMoveParams, ResourceMoveResult, ResourceReadResult, ResourceWriteParams, ResourceWriteResult, IStateSnapshot } from './state/sessionProtocol.js';
@@ -126,6 +126,27 @@ export interface IAgentCreateSessionResult {
 	readonly project?: IAgentSessionProjectInfo;
 	/** The resolved working directory, which may differ from the requested one (e.g. worktree). */
 	readonly workingDirectory?: URI;
+	/**
+	 * `true` when the agent only allocated an in-memory placeholder for this
+	 * session (no SDK session, no worktree, no on-disk state). Materialization
+	 * happens lazily on the first {@link IAgent.sendMessage}, at which point
+	 * the agent fires {@link IAgent.onDidMaterializeSession}. The
+	 * {@link IAgentService} uses this flag to defer the `sessionAdded` protocol
+	 * notification so observers don't see the session in their list until it
+	 * has been persisted.
+	 */
+	readonly provisional?: boolean;
+}
+
+/**
+ * Payload of {@link IAgent.onDidMaterializeSession}. Fired once per session
+ * when a previously {@link IAgentCreateSessionResult.provisional} session has
+ * its SDK session, worktree (if any), and on-disk metadata in place.
+ */
+export interface IAgentMaterializeSessionEvent {
+	readonly session: URI;
+	readonly workingDirectory: URI | undefined;
+	readonly project: IAgentSessionProjectInfo | undefined;
 }
 
 export type AgentProvider = string;
@@ -241,6 +262,7 @@ export interface IAgentModelInfo {
 	readonly supportsVision: boolean;
 	readonly configSchema?: ConfigSchema;
 	readonly policyState?: PolicyState;
+	readonly _meta?: Record<string, unknown>;
 }
 
 // ---- Agent signals (sent via IAgent.onDidSessionProgress) -------------------
@@ -380,6 +402,16 @@ export interface IAgent {
 	/** Fires when the provider streams progress for a session. */
 	readonly onDidSessionProgress: Event<AgentSignal>;
 
+	/**
+	 * Fires once when a previously
+	 * {@link IAgentCreateSessionResult.provisional} session has been
+	 * materialized — i.e. its SDK session, worktree (if any), and on-disk
+	 * metadata are all in place. The {@link IAgentService} uses this event
+	 * to fire the deferred `sessionAdded` notification with the now-final
+	 * summary.
+	 */
+	readonly onDidMaterializeSession?: Event<IAgentMaterializeSessionEvent>;
+
 	/** Create a new session. Returns server-owned session metadata. */
 	createSession(config?: IAgentCreateSessionConfig): Promise<IAgentCreateSessionResult>;
 
@@ -434,6 +466,9 @@ export interface IAgent {
 
 	/** List persisted sessions from this provider. */
 	listSessions(): Promise<IAgentSessionMetadata[]>;
+
+	/** Retrieve metadata for a single persisted session, without enumerating the provider catalog. */
+	getSessionMetadata?(session: URI): Promise<IAgentSessionMetadata | undefined>;
 
 	/** Declare protected resources this agent requires auth for (RFC 9728). */
 	getProtectedResources(): ProtectedResourceMetadata[];
@@ -558,6 +593,14 @@ export interface IAgentService {
 	/** Return dynamic completions for a session configuration property. */
 	sessionConfigCompletions(params: IAgentSessionConfigCompletionsParams): Promise<SessionConfigCompletionsResult>;
 
+	/**
+	 * Return completion items for a partially-typed input (e.g. an `@`-mention
+	 * inside a user message the user is composing). Delegates to a pluggable
+	 * set of {@link IAgentHostCompletionItemProvider}s registered with the
+	 * agent host.
+	 */
+	completions(params: CompletionsParams): Promise<CompletionsResult>;
+
 	/** Dispose a session in the agent host, freeing SDK resources. */
 	disposeSession(session: URI): Promise<void>;
 
@@ -681,6 +724,7 @@ export interface IAgentConnection {
 	createSession(config?: IAgentCreateSessionConfig): Promise<URI>;
 	resolveSessionConfig(params: IAgentResolveSessionConfigParams): Promise<ResolveSessionConfigResult>;
 	sessionConfigCompletions(params: IAgentSessionConfigCompletionsParams): Promise<SessionConfigCompletionsResult>;
+	completions(params: CompletionsParams): Promise<CompletionsResult>;
 	disposeSession(session: URI): Promise<void>;
 
 	// ---- Terminal lifecycle -------------------------------------------------
