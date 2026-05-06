@@ -113,6 +113,7 @@ interface IRunScriptActionContext {
 	readonly tasks: readonly ISessionTaskWithTarget[];
 	readonly pinnedTaskLabel: string | undefined;
 	readonly browserUrl: string | undefined;
+	readonly pinnedBrowser: boolean;
 }
 
 type TaskConfigurationMode = 'add' | 'configure';
@@ -136,6 +137,7 @@ export class RunScriptContribution extends Disposable implements IWorkbenchContr
 		@IWorkbenchLayoutService private readonly _layoutService: IWorkbenchLayoutService,
 		@ITelemetryService private readonly _telemetryService: ITelemetryService,
 		@IChatWidgetService private readonly _chatWidgetService: IChatWidgetService,
+		@ICommandService private readonly _commandService: ICommandService,
 	) {
 		super();
 
@@ -147,6 +149,7 @@ export class RunScriptContribution extends Disposable implements IWorkbenchContr
 				return a.session === b.session
 					&& a.pinnedTaskLabel === b.pinnedTaskLabel
 					&& a.browserUrl === b.browserUrl
+					&& a.pinnedBrowser === b.pinnedBrowser
 					&& equals(a.tasks, b.tasks, (t1, t2) =>
 						t1.task.label === t2.task.label
 						&& t1.task.command === t2.task.command
@@ -163,7 +166,8 @@ export class RunScriptContribution extends Disposable implements IWorkbenchContr
 			const repo = activeSession.workspace.read(reader)?.repositories[0];
 			const pinnedTaskLabel = this._sessionsConfigService.getPinnedTaskLabel(repo?.uri).read(reader);
 			const browserUrl = this._sessionsConfigService.getBrowserUrl(repo?.uri).read(reader);
-			return { session: activeSession, tasks, pinnedTaskLabel, browserUrl };
+			const pinnedBrowser = this._sessionsConfigService.getPinnedBrowser(repo?.uri).read(reader);
+			return { session: activeSession, tasks, pinnedTaskLabel, browserUrl, pinnedBrowser };
 		}).recomputeInitiallyAndOnChange(this._store);
 
 		this._registerActionViewItemProvider();
@@ -215,7 +219,12 @@ export class RunScriptContribution extends Disposable implements IWorkbenchContr
 
 				logSessionsInteraction(that._telemetryService, 'runPrimaryTask');
 
-				const { tasks, session } = activeState;
+				const { tasks, session, pinnedBrowser, browserUrl } = activeState;
+				if (pinnedBrowser) {
+					await that._commandService.executeCommand('simpleBrowser.show', browserUrl);
+					return;
+				}
+
 				if (tasks.length === 0) {
 					const task = await that._showConfigureQuickPick(session);
 					if (task) {
@@ -540,14 +549,14 @@ class RunScriptActionViewItem extends BaseActionViewItem {
 		super(undefined, action);
 
 		const state = this._activeRunState.get();
-		const hasTasks = state && state.tasks.length > 0;
+		const isPrimaryEnabled = !!state && (state.tasks.length > 0 || state.pinnedBrowser);
 
 		// Primary action button - runs the pinned task (or first task when none is pinned)
 		this._primaryActionAction = this._register(new Action(
 			'agentSessions.runScriptPrimary',
 			this._getPrimaryActionTooltip(state),
 			ThemeIcon.asClassName(Codicon.play),
-			hasTasks,
+			isPrimaryEnabled,
 			() => this._commandService.executeCommand(RUN_SCRIPT_ACTION_PRIMARY_ID)
 		));
 		this._primaryAction = this._register(new ActionViewItem(undefined, this._primaryActionAction, { icon: true, label: false }));
@@ -555,7 +564,7 @@ class RunScriptActionViewItem extends BaseActionViewItem {
 		// Update enabled state when tasks change
 		this._register(autorun(reader => {
 			const runState = this._activeRunState.read(reader);
-			this._primaryActionAction.enabled = !!runState && runState.tasks.length > 0;
+			this._primaryActionAction.enabled = !!runState && (runState.tasks.length > 0 || runState.pinnedBrowser);
 			this._primaryActionAction.label = this._getPrimaryActionTooltip(runState);
 		}));
 
@@ -624,6 +633,15 @@ class RunScriptActionViewItem extends BaseActionViewItem {
 	}
 
 	private _getPrimaryActionTooltip(state: IRunScriptActionContext | undefined): string {
+		const keybindingLabel = this._keybindingService.lookupKeybinding(RUN_SCRIPT_ACTION_PRIMARY_ID)?.getLabel();
+		const withKeybinding = (label: string) => keybindingLabel
+			? localize('runActionTooltipKeybinding', "{0} ({1})", label, keybindingLabel)
+			: label;
+
+		if (state?.pinnedBrowser) {
+			return withKeybinding(localize('openBrowserAction', "Open Browser"));
+		}
+
 		if (!state || state.tasks.length === 0) {
 			return localize('runPrimaryTaskTooltip', "Run Primary Task");
 		}
@@ -633,10 +651,7 @@ class RunScriptActionViewItem extends BaseActionViewItem {
 			return localize('runPrimaryTaskTooltip', "Run Primary Task");
 		}
 
-		const keybindingLabel = this._keybindingService.lookupKeybinding(RUN_SCRIPT_ACTION_PRIMARY_ID)?.getLabel();
-		return keybindingLabel
-			? localize('runActionTooltipKeybinding', "{0} ({1})", getTaskDisplayLabel(primaryTask), keybindingLabel)
-			: getTaskDisplayLabel(primaryTask);
+		return withKeybinding(getTaskDisplayLabel(primaryTask));
 	}
 
 	private _getDropdownActions(): IActionWidgetDropdownAction[] {
@@ -763,6 +778,7 @@ class RunScriptActionViewItem extends BaseActionViewItem {
 		const browserUrl = state.browserUrl;
 		const browserUrlDescription = formatBrowserUrlDescription(browserUrl, 20);
 		const canConfigureBrowser = !!repo?.uri;
+		const isBrowserPinned = state.pinnedBrowser;
 		actions.push({
 			id: 'runScript.openBrowser',
 			label: localize('openBrowserAction', "Open Browser"),
@@ -778,6 +794,17 @@ class RunScriptActionViewItem extends BaseActionViewItem {
 			class: undefined,
 			category: browserCategory,
 			toolbarActions: [
+				{
+					id: 'runScript.pinBrowser',
+					label: isBrowserPinned ? localize('unpinBrowser', "Unpin") : localize('pinBrowser', "Pin"),
+					tooltip: isBrowserPinned ? localize('unpinBrowserTooltip', "Unpin") : localize('pinBrowserTooltip', "Pin"),
+					class: ThemeIcon.asClassName(isBrowserPinned ? Codicon.pinned : Codicon.pin),
+					enabled: !!repo?.uri,
+					run: async () => {
+						this._actionWidgetService.hide();
+						this._sessionsConfigService.setPinnedBrowser(repo?.uri, !isBrowserPinned);
+					}
+				},
 				{
 					id: 'runScript.configureBrowser',
 					label: localize('configureBrowserUrl', "Configure URL"),
