@@ -2095,18 +2095,23 @@ export class DisposableResizeObserver extends Disposable {
 		const ctor = options?.resizeObserverCtor ?? targetWindow.ResizeObserver;
 		this.observer = new ctor((entries: ResizeObserverEntry[], observer) => {
 			_lastInvokedDisposableResizeObserver = this;
-			// Microtasks run after the current task (the resize-observation
-			// phase + any synchronous `window.onerror` handlers triggered by
-			// the loop warning) but before the next task. Clearing the slot
-			// here scopes attribution to the same task that produced the
-			// warning, so unrelated errors fired later in the renderer don't
-			// inherit a stale observer name. The equality check ensures only
-			// the *last* writer in a phase actually clears the slot.
-			queueMicrotask(() => {
+			// Clear via a 0-ms timer (a new macrotask) rather than a
+			// microtask: microtask checkpoints run at the end of every
+			// script, i.e. after each ResizeObserver callback returns, but
+			// Chromium dispatches the synthetic `ResizeObserver loop
+			// completed with undelivered notifications` error *after* all
+			// callbacks in the observation phase finish. A microtask would
+			// clear the slot before the warning fires; a setTimeout(0)
+			// runs after the entire current task completes (callbacks +
+			// loop-error dispatch), so attribution survives long enough to
+			// be picked up by `window.onerror` while still being scoped to
+			// the same task that produced it. The equality check ensures
+			// only the *last* writer in a phase actually clears the slot.
+			setTimeout(() => {
 				if (_lastInvokedDisposableResizeObserver === this) {
 					_lastInvokedDisposableResizeObserver = undefined;
 				}
-			});
+			}, 0);
 			try {
 				callback(entries, observer);
 			} catch (e) {
@@ -2124,10 +2129,12 @@ export class DisposableResizeObserver extends Disposable {
 
 /**
  * The most recently invoked `DisposableResizeObserver`. Set just before each
- * user callback runs and cleared by a microtask scheduled in the same step,
+ * user callback runs and cleared by a 0-ms timer scheduled in the same step,
  * so the slot only carries an attribution within the same task as the
  * `ResizeObserver loop completed with undelivered notifications` warning
  * (which fires synchronously at the end of the resize-observation phase).
+ * A microtask would be too eager — microtask checkpoints run between each
+ * callback, before the loop-error dispatch.
  */
 let _lastInvokedDisposableResizeObserver: DisposableResizeObserver | undefined;
 

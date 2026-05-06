@@ -656,18 +656,21 @@ suite('dom', () => {
 			b.dispose();
 		});
 
-		test('getRecentDisposableResizeObserverAttributionForLoopError clears after a microtask so unrelated later errors are not mis-attributed', async () => {
+		test('getRecentDisposableResizeObserverAttributionForLoopError clears after the current task so unrelated later errors are not mis-attributed', async () => {
 			const fake = createFakeResizeObserverCtor();
 			const observer = new DisposableResizeObserver('scoped', () => { /* noop */ }, mainWindow, { resizeObserverCtor: fake.ctor });
 			fake.fire([fakeEntry()]);
-			// Slot is set synchronously; attribution still works in this tick.
-			assert.ok(getRecentDisposableResizeObserverAttributionForLoopError('ResizeObserver loop completed with undelivered notifications.'));
-			// Yield once so the wrapper's queueMicrotask cleanup runs.
+			// Slot is set synchronously and survives microtasks (so it is
+			// still set when Chromium dispatches the loop warning at the end
+			// of the resize-observation phase).
 			await Promise.resolve();
+			assert.ok(getRecentDisposableResizeObserverAttributionForLoopError('ResizeObserver loop completed with undelivered notifications.'));
+			// A 0-ms timer (next macrotask) clears the slot.
+			await new Promise(resolve => setTimeout(resolve, 0));
 			assert.strictEqual(
 				getRecentDisposableResizeObserverAttributionForLoopError('ResizeObserver loop completed with undelivered notifications.'),
 				undefined,
-				'slot must be cleared by the next microtask so an unrelated later error does not inherit a stale observer name',
+				'slot must be cleared by the next task so an unrelated later error does not inherit a stale observer name',
 			);
 			observer.dispose();
 		});
