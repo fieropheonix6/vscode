@@ -82,6 +82,17 @@ function getTaskCommandPreview(task: ITaskEntry): string {
 	return getTaskDisplayLabel(task);
 }
 
+function formatBrowserUrlDescription(url: string | undefined, maxLength: number): string | undefined {
+	if (!url) {
+		return undefined;
+	}
+	const stripped = url.replace(/^https?:\/\//i, '').replace(/^www\./i, '');
+	if (stripped.length <= maxLength) {
+		return stripped;
+	}
+	return `${stripped.substring(0, maxLength - 3)}...`;
+}
+
 function getPrimaryTask(tasks: readonly ISessionTaskWithTarget[], pinnedTaskLabel: string | undefined): ISessionTaskWithTarget | undefined {
 	if (tasks.length === 0) {
 		return undefined;
@@ -101,6 +112,7 @@ interface IRunScriptActionContext {
 	readonly session: ISession;
 	readonly tasks: readonly ISessionTaskWithTarget[];
 	readonly pinnedTaskLabel: string | undefined;
+	readonly browserUrl: string | undefined;
 }
 
 type TaskConfigurationMode = 'add' | 'configure';
@@ -134,6 +146,7 @@ export class RunScriptContribution extends Disposable implements IWorkbenchContr
 				if (!a || !b) { return false; }
 				return a.session === b.session
 					&& a.pinnedTaskLabel === b.pinnedTaskLabel
+					&& a.browserUrl === b.browserUrl
 					&& equals(a.tasks, b.tasks, (t1, t2) =>
 						t1.task.label === t2.task.label
 						&& t1.task.command === t2.task.command
@@ -149,7 +162,8 @@ export class RunScriptContribution extends Disposable implements IWorkbenchContr
 			const tasks = this._sessionsConfigService.getSessionTasks(activeSession).read(reader);
 			const repo = activeSession.workspace.read(reader)?.repositories[0];
 			const pinnedTaskLabel = this._sessionsConfigService.getPinnedTaskLabel(repo?.uri).read(reader);
-			return { session: activeSession, tasks, pinnedTaskLabel };
+			const browserUrl = this._sessionsConfigService.getBrowserUrl(repo?.uri).read(reader);
+			return { session: activeSession, tasks, pinnedTaskLabel, browserUrl };
 		}).recomputeInitiallyAndOnChange(this._store);
 
 		this._registerActionViewItemProvider();
@@ -173,6 +187,7 @@ export class RunScriptContribution extends Disposable implements IWorkbenchContr
 					(session: ISession) => that._showConfigureQuickPick(session),
 					(session: ISession, existingTask: INonSessionTaskEntry, mode?: TaskConfigurationMode) => that._showCustomCommandInput(session, existingTask, mode),
 					(session: ISession) => that._generateNewTask(session),
+					(session: ISession) => that._configureBrowserUrl(session),
 				);
 			},
 		));
@@ -285,6 +300,25 @@ export class RunScriptContribution extends Disposable implements IWorkbenchContr
 		} else {
 			await this._sessionManagementService.sendAndCreateChat(session, { query });
 		}
+	}
+
+	private async _configureBrowserUrl(session: ISession): Promise<void> {
+		const repo = session.workspace.get()?.repositories[0];
+		if (!repo?.uri) {
+			return;
+		}
+		const currentUrl = this._sessionsConfigService.getBrowserUrl(repo.uri).get();
+		const url = await this._quickInputService.input({
+			title: localize('configureBrowserUrlTitle', "Configure Browser URL"),
+			prompt: localize('configureBrowserUrlPrompt', "Enter the URL to open in the integrated browser. Leave empty to clear."),
+			placeHolder: 'https://example.com',
+			value: currentUrl ?? '',
+			ignoreFocusLost: true,
+		});
+		if (url === undefined) {
+			return;
+		}
+		this._sessionsConfigService.setBrowserUrl(repo.uri, url);
 	}
 
 	private async _showConfigureQuickPick(session: ISession): Promise<ITaskEntry | undefined> {
@@ -495,6 +529,7 @@ class RunScriptActionViewItem extends BaseActionViewItem {
 		private readonly _showConfigureQuickPick: (session: ISession) => Promise<ITaskEntry | undefined>,
 		private readonly _showCustomCommandInput: (session: ISession, existingTask: INonSessionTaskEntry, mode?: TaskConfigurationMode) => Promise<ITaskEntry | undefined>,
 		private readonly _generateNewTask: (session: ISession) => Promise<void>,
+		private readonly _configureBrowserUrl: (session: ISession) => Promise<void>,
 		@ICommandService private readonly _commandService: ICommandService,
 		@ISessionsTasksService private readonly _sessionsConfigService: ISessionsTasksService,
 		@IKeybindingService private readonly _keybindingService: IKeybindingService,
@@ -720,6 +755,43 @@ class RunScriptActionViewItem extends BaseActionViewItem {
 			run: async () => {
 				logSessionsInteraction(this._telemetryService, 'generateNewTask', 'actionWidget');
 				await this._generateNewTask(session);
+			},
+		});
+
+		// Browser category - Open Browser action
+		const browserCategory = { label: localize('browserActionsCategory', "Browser"), order: 3, showHeader: true };
+		const browserUrl = state.browserUrl;
+		const browserUrlDescription = formatBrowserUrlDescription(browserUrl, 20);
+		const canConfigureBrowser = !!repo?.uri;
+		actions.push({
+			id: 'runScript.openBrowser',
+			label: localize('openBrowserAction', "Open Browser"),
+			tooltip: '',
+			description: browserUrlDescription,
+			hover: {
+				content: browserUrl
+					? localize('openBrowserActionTooltip', "Open '{0}' in the integrated browser", browserUrl)
+					: localize('openBrowserActionTooltipUnconfigured', "Open the integrated browser"),
+			},
+			icon: Codicon.browser,
+			enabled: true,
+			class: undefined,
+			category: browserCategory,
+			toolbarActions: [
+				{
+					id: 'runScript.configureBrowser',
+					label: localize('configureBrowserUrl', "Configure URL"),
+					tooltip: localize('configureBrowserUrl', "Configure URL"),
+					class: ThemeIcon.asClassName(Codicon.gear),
+					enabled: canConfigureBrowser,
+					run: async () => {
+						this._actionWidgetService.hide();
+						await this._configureBrowserUrl(session);
+					}
+				}
+			],
+			run: async () => {
+				await this._commandService.executeCommand('simpleBrowser.show', browserUrl);
 			},
 		});
 

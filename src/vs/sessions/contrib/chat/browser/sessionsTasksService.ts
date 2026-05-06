@@ -116,6 +116,16 @@ export interface ISessionsTasksService {
 	 * Sets or clears the pinned task for the given repository.
 	 */
 	setPinnedTaskLabel(repository: URI | undefined, taskLabel: string | undefined): void;
+
+	/**
+	 * Observable URL configured for the integrated browser action for the given repository.
+	 */
+	getBrowserUrl(repository: URI | undefined): IObservable<string | undefined>;
+
+	/**
+	 * Sets or clears the configured browser URL for the given repository.
+	 */
+	setBrowserUrl(repository: URI | undefined, url: string | undefined): void;
 }
 
 export const ISessionsTasksService = createDecorator<ISessionsTasksService>('sessionsTasksService');
@@ -125,10 +135,13 @@ export class SessionsTasksService extends Disposable implements ISessionsTasksSe
 	declare readonly _serviceBrand: undefined;
 
 	private static readonly _PINNED_TASK_LABELS_KEY = 'agentSessions.pinnedTaskLabels';
+	private static readonly _BROWSER_URLS_KEY = 'agentSessions.browserUrls';
 	private readonly _sessionTasks = observableValue<readonly ISessionTaskWithTarget[]>(this, []);
 	private readonly _fileWatcher = this._register(new MutableDisposable());
 	private readonly _pinnedTaskLabels: Map<string, string>;
 	private readonly _pinnedTaskObservables = new Map<string, ReturnType<typeof observableValue<string | undefined>>>();
+	private readonly _browserUrls: Map<string, string>;
+	private readonly _browserUrlObservables = new Map<string, ReturnType<typeof observableValue<string | undefined>>>();
 
 	private _watchedResource: URI | undefined;
 	private _lastRefreshedFolder: URI | undefined;
@@ -143,6 +156,7 @@ export class SessionsTasksService extends Disposable implements ISessionsTasksSe
 	) {
 		super();
 		this._pinnedTaskLabels = this._loadPinnedTaskLabels();
+		this._browserUrls = this._loadBrowserUrls();
 	}
 
 	getSessionTasks(session: ISession): IObservable<readonly ISessionTaskWithTarget[]> {
@@ -344,6 +358,41 @@ export class SessionsTasksService extends Disposable implements ISessionsTasksSe
 		this._setPinnedTaskLabelForKey(repository.toString(), taskLabel);
 	}
 
+	getBrowserUrl(repository: URI | undefined): IObservable<string | undefined> {
+		if (!repository) {
+			return observableValue('browserUrl', undefined);
+		}
+
+		const key = repository.toString();
+		let obs = this._browserUrlObservables.get(key);
+		if (!obs) {
+			obs = observableValue('browserUrl', this._browserUrls.get(key));
+			this._browserUrlObservables.set(key, obs);
+		}
+		return obs;
+	}
+
+	setBrowserUrl(repository: URI | undefined, url: string | undefined): void {
+		if (!repository) {
+			return;
+		}
+
+		const key = repository.toString();
+		const trimmed = url?.trim();
+		if (!trimmed) {
+			this._browserUrls.delete(key);
+		} else {
+			this._browserUrls.set(key, trimmed);
+		}
+
+		this._saveBrowserUrls();
+
+		const obs = this._browserUrlObservables.get(key);
+		if (obs) {
+			transaction(tx => obs.set(trimmed || undefined, tx));
+		}
+	}
+
 	// --- private helpers ---
 
 	private _getSessionRepo(session: ISession) {
@@ -478,5 +527,26 @@ export class SessionsTasksService extends Disposable implements ISessionsTasksSe
 		if (obs) {
 			transaction(tx => obs.set(taskLabel, tx));
 		}
+	}
+
+	private _loadBrowserUrls(): Map<string, string> {
+		const raw = this._storageService.get(SessionsTasksService._BROWSER_URLS_KEY, StorageScope.APPLICATION);
+		if (raw) {
+			try {
+				return new Map(Object.entries(JSON.parse(raw)));
+			} catch {
+				// ignore corrupt data
+			}
+		}
+		return new Map();
+	}
+
+	private _saveBrowserUrls(): void {
+		this._storageService.store(
+			SessionsTasksService._BROWSER_URLS_KEY,
+			JSON.stringify(Object.fromEntries(this._browserUrls)),
+			StorageScope.APPLICATION,
+			StorageTarget.USER
+		);
 	}
 }
