@@ -1089,6 +1089,7 @@ export class EditorPart extends Part<IEditorPartMemento> implements IEditorPart,
 
 		updateContextKeys();
 		updateEditorTabsVisibleContext();
+		updateTopRightGroupContextKey();
 
 		this._register(this.onDidAddGroup(() => {
 			updateContextKeys();
