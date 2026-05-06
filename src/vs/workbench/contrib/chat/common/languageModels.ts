@@ -370,6 +370,14 @@ export interface ILanguageModelsService {
 	getLanguageModelGroups(vendor: string): ILanguageModelsGroup[];
 
 	/**
+	 * Returns true if the given vendor's provider has completed at least one
+	 * model resolution since registration. A `false` result indicates the
+	 * vendor is still in a startup/reload race where its model list isn't yet
+	 * authoritative — callers can fall back to a cached list in that case.
+	 */
+	hasResolvedVendor(vendor: string): boolean;
+
+	/**
 	 * Given a selector, returns a list of model identifiers
 	 * @param selector The selector to lookup for language models. If the selector is empty, all language models are returned.
 	 */
@@ -686,6 +694,7 @@ export class LanguageModelsService implements ILanguageModelsService {
 			this._vendors.delete(item.vendor);
 			this._providers.delete(item.vendor);
 			this._clearModelCache(item.vendor);
+			this._modelsGroups.delete(item.vendor);
 			removedVendorIds.push(item.vendor);
 		}
 
@@ -922,6 +931,10 @@ export class LanguageModelsService implements ILanguageModelsService {
 		return this._modelsGroups.get(vendor) ?? [];
 	}
 
+	hasResolvedVendor(vendor: string): boolean {
+		return this._modelsGroups.has(vendor);
+	}
+
 	async selectLanguageModels(selector: ILanguageModelChatSelector): Promise<string[]> {
 
 		if (selector.vendor) {
@@ -966,6 +979,7 @@ export class LanguageModelsService implements ILanguageModelsService {
 		return toDisposable(() => {
 			this._logService.trace('[LM] UNregistered language model provider', vendor);
 			this._clearModelCache(vendor);
+			this._modelsGroups.delete(vendor);
 			this._providers.delete(vendor);
 			modelChangeListener.dispose();
 		});
